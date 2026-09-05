@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+VENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Media/Output (generated during runtime)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.gif
+output/
+recordings/
+screenshots/
+
+# Model weights / checkpoints (if any added later)
+*.pt
+*.pth
+*.onnx
+*.pb
+*.h5
+*.tflite
+models/
+weights/
+checkpoints/
+
+# Data / datasets
+data/
+datasets/
+*.csv
+*.json
+*.pkl
+*.pickle
+
+# Environment / secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.mypy_cache/
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
