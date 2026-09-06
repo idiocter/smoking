@@ -1,6 +1,6 @@
 import numpy as np
 from utils.geometry import distance, midpoint, vector_angle, normalize
-from utils.smoothing import OneEuroFilter, AngleOneEuroFilter
+from utils.smoothing import OneEuroFilter, OneEuroFilter2D, AngleOneEuroFilter
 from config import Config
 
 
@@ -16,7 +16,7 @@ class CigaretteTracker:
         pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
         rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
 
-        self.position_smoother = OneEuroFilter(
+        self.position_smoother = OneEuroFilter2D(
             freq=pos_cfg['freq'],
             mincutoff=pos_cfg['mincutoff'],
             beta=pos_cfg['beta']
@@ -151,7 +151,7 @@ class CigaretteTracker:
         self._frames_lost = 0
         pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
         rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
-        self.position_smoother = OneEuroFilter(
+        self.position_smoother = OneEuroFilter2D(
             freq=pos_cfg['freq'],
             mincutoff=pos_cfg['mincutoff'],
             beta=pos_cfg['beta']
