@@ -1,6 +1,7 @@
 import numpy as np
 from utils.geometry import distance
 from utils.smoothing import Smoother
+from config import Config
 
 
 class CigaretteMouthState:
@@ -11,18 +12,18 @@ class CigaretteMouthState:
 
 
 class CigaretteMouthDetector:
-    def __init__(self,
-                 near_threshold=80,
-                 approach_frames=3,
-                 near_frames=3,
-                 away_frames=3,
-                 distance_smoothing=3):
-        self.near_threshold = near_threshold
-        self.approach_frames = approach_frames
-        self.near_frames = near_frames
-        self.away_frames = away_frames
+    def __init__(self):
+        cfg = Config.CIGARETTE_MOUTH_DETECTOR
+        self.near_threshold = cfg['near_threshold']
+        self.approach_frames = cfg['approach_frames']
+        self.near_frames = cfg['near_frames']
+        self.away_frames = cfg['away_frames']
+        self.approach_delta_threshold = cfg['approach_delta_threshold']
+        self.away_delta_threshold = cfg['away_delta_threshold']
+        self.near_exit_multiplier = cfg['near_exit_multiplier']
+        self.far_exit_multiplier = cfg['far_exit_multiplier']
 
-        self._distance_history = Smoother(window_size=distance_smoothing)
+        self._distance_history = Smoother(window_size=cfg['distance_smoothing'])
         self._state = CigaretteMouthState.FAR
         self._frames_in_state = 0
         self._prev_distance = None
@@ -62,6 +63,7 @@ class CigaretteMouthDetector:
         self._approach_count = 0
         self._near_count = 0
         self._away_count = 0
+        self._distance_history.clear()
 
     def _update_state(self):
         dist = self.current_distance
@@ -78,7 +80,7 @@ class CigaretteMouthDetector:
                         self._state = CigaretteMouthState.NEAR
                         self._frames_in_state = 0
                         self._near_count = 0
-                elif delta < -2:
+                elif delta < -self.approach_delta_threshold:
                     self._approach_count += 1
                     self._near_count = 0
                     self._away_count = 0
@@ -100,7 +102,7 @@ class CigaretteMouthDetector:
                         self._state = CigaretteMouthState.NEAR
                         self._frames_in_state = 0
                         self._near_count = 0
-                elif delta > 2:
+                elif delta > self.away_delta_threshold:
                     self._away_count += 1
                     self._near_count = 0
                     if self._away_count >= self.away_frames:
@@ -112,7 +114,7 @@ class CigaretteMouthDetector:
 
             elif self._state == CigaretteMouthState.NEAR:
                 self._frames_in_state += 1
-                if dist >= self.near_threshold * 1.2:
+                if dist >= self.near_threshold * self.near_exit_multiplier:
                     self._away_count += 1
                     self._near_count = 0
                     if self._away_count >= self.away_frames:
@@ -132,7 +134,7 @@ class CigaretteMouthDetector:
                         self._state = CigaretteMouthState.NEAR
                         self._frames_in_state = 0
                         self._near_count = 0
-                elif dist > self.near_threshold * 2:
+                elif dist > self.near_threshold * self.far_exit_multiplier:
                     self._state = CigaretteMouthState.FAR
                     self._frames_in_state = 0
                     self._away_count = 0
@@ -154,4 +156,7 @@ class CigaretteMouthDetector:
             'distance': self.current_distance,
             'threshold': self.near_threshold,
             'frames_in_state': self._frames_in_state,
+            'approach_count': self._approach_count,
+            'near_count': self._near_count,
+            'away_count': self._away_count,
         }

@@ -1,19 +1,31 @@
 import numpy as np
 from utils.geometry import distance, midpoint, vector_angle, normalize
-from utils.smoothing import Smoother, OneEuroFilter
+from utils.smoothing import OneEuroFilter, AngleOneEuroFilter
+from config import Config
 
 
 class CigaretteTracker:
-    def __init__(self, smoothing_window=3, use_one_euro=True):
-        self.length = 140
-        self.thickness = 12
+    def __init__(self):
+        self.length = Config.CIGARETTE_TRACKER['length']
+        self.thickness = Config.CIGARETTE_TRACKER['thickness']
         self.is_held = False
 
         self._raw_position = None
         self._raw_rotation = 0.0
 
-        self.position_smoother = OneEuroFilter(freq=30.0, mincutoff=1.5, beta=0.3) if use_one_euro else Smoother(window_size=smoothing_window)
-        self.rotation_smoother = OneEuroFilter(freq=30.0, mincutoff=1.0, beta=0.5) if use_one_euro else Smoother(window_size=smoothing_window)
+        pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
+        rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
+
+        self.position_smoother = OneEuroFilter(
+            freq=pos_cfg['freq'],
+            mincutoff=pos_cfg['mincutoff'],
+            beta=pos_cfg['beta']
+        )
+        self.rotation_smoother = AngleOneEuroFilter(
+            freq=rot_cfg['freq'],
+            mincutoff=rot_cfg['mincutoff'],
+            beta=rot_cfg['beta']
+        )
 
         self.position = None
         self.rotation = 0.0
@@ -21,7 +33,8 @@ class CigaretteTracker:
         self._last_valid_position = None
         self._last_valid_rotation = 0.0
         self._frames_lost = 0
-        self._max_frames_lost = 10
+        self._max_frames_lost = Config.CIGARETTE_TRACKER['max_frames_lost']
+        self._min_finger_distance = Config.CIGARETTE_TRACKER['min_finger_distance']
 
     def _calculate_cigarette_geometry(self, hand_landmarks):
         thumb_tip = hand_landmarks.get('thumb_tip')
@@ -39,7 +52,7 @@ class CigaretteTracker:
         dx = index_tip[0] - thumb_tip[0]
         dy = index_tip[1] - thumb_tip[1]
 
-        if distance(thumb_tip, index_tip) < 15:
+        if distance(thumb_tip, index_tip) < self._min_finger_distance:
             if index_mcp and index_tip:
                 dx = index_tip[0] - index_mcp[0]
                 dy = index_tip[1] - index_mcp[1]
@@ -51,11 +64,6 @@ class CigaretteTracker:
 
         rotation = vector_angle((dx, dy))
 
-        while rotation > np.pi:
-            rotation -= 2 * np.pi
-        while rotation < -np.pi:
-            rotation += 2 * np.pi
-
         return position, rotation
 
     def update(self, hand_landmarks):
@@ -64,6 +72,8 @@ class CigaretteTracker:
             if self._frames_lost > self._max_frames_lost:
                 self.is_held = False
                 self.position = None
+                self.position_smoother.reset()
+                self.rotation_smoother.reset()
             return
 
         self._frames_lost = 0
@@ -77,12 +87,8 @@ class CigaretteTracker:
         self._raw_position = raw_pos
         self._raw_rotation = raw_rot
 
-        if hasattr(self.position_smoother, '__call__'):
-            self.position = self.position_smoother(raw_pos)
-            self.rotation = self.rotation_smoother(raw_rot)
-        else:
-            self.position = self.position_smoother.add(raw_pos)
-            self.rotation = self.rotation_smoother.add(raw_rot)
+        self.position = self.position_smoother(raw_pos)
+        self.rotation = self.rotation_smoother(raw_rot)
 
         if self.position is not None:
             self._last_valid_position = self.position
@@ -143,5 +149,15 @@ class CigaretteTracker:
         self._last_valid_position = None
         self._last_valid_rotation = 0.0
         self._frames_lost = 0
-        self.position_smoother = OneEuroFilter(freq=30.0, mincutoff=1.5, beta=0.3)
-        self.rotation_smoother = OneEuroFilter(freq=30.0, mincutoff=1.0, beta=0.5)
+        pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
+        rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
+        self.position_smoother = OneEuroFilter(
+            freq=pos_cfg['freq'],
+            mincutoff=pos_cfg['mincutoff'],
+            beta=pos_cfg['beta']
+        )
+        self.rotation_smoother = AngleOneEuroFilter(
+            freq=rot_cfg['freq'],
+            mincutoff=rot_cfg['mincutoff'],
+            beta=rot_cfg['beta']
+        )
