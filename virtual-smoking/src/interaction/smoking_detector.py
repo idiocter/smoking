@@ -1,5 +1,6 @@
 import numpy as np
 from utils.smoothing import Smoother
+from config import Config
 
 
 class SmokingState:
@@ -15,21 +16,21 @@ class SmokingState:
 
 class SmokingDetector:
     def __init__(self):
-        self.NEAR_MOUTH_THRESHOLD = 80
-        self.APPROACHING_FRAME_COUNT = 3
-        self.NEAR_MOUTH_FRAME_COUNT = 3
-        self.INHALATION_WINDOW = 10
-        self.INHALATION_FRAME_COUNT = 4
-        self.AWAY_FRAME_COUNT = 3
-        self.MOUTH_OPENING_CHANGE_THRESHOLD = 4
-        self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD = 0.3
-
-        self.EXHALATION_WINDOW = 15
-        self.EXHALATION_FRAME_COUNT = 5
-        self.EXHALATION_STABILITY_FRAMES = 2
-        self.EXHALATION_MOUTH_OPENING_THRESHOLD = 6
-        self.EXHALATION_MOUTH_WIDTH_CHANGE_THRESHOLD = 4
-        self.AWAY_FROM_MOUTH_THRESHOLD = 120
+        cfg = Config.SMOKING_DETECTOR
+        self.NEAR_MOUTH_THRESHOLD = cfg['near_mouth_threshold']
+        self.APPROACHING_FRAME_COUNT = cfg['approaching_frame_count']
+        self.NEAR_MOUTH_FRAME_COUNT = cfg['near_mouth_frame_count']
+        self.INHALATION_WINDOW = cfg['inhalation_window']
+        self.INHALATION_FRAME_COUNT = cfg['inhalation_frame_count']
+        self.AWAY_FRAME_COUNT = cfg['away_frame_count']
+        self.MOUTH_OPENING_CHANGE_THRESHOLD = cfg['mouth_opening_change_threshold']
+        self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD = cfg['mouth_aspect_ratio_change_threshold']
+        self.EXHALATION_WINDOW = cfg['exhalation_window']
+        self.EXHALATION_FRAME_COUNT = cfg['exhalation_frame_count']
+        self.EXHALATION_STABILITY_FRAMES = cfg['exhalation_stability_frames']
+        self.EXHALATION_MOUTH_OPENING_THRESHOLD = cfg['exhalation_mouth_opening_threshold']
+        self.EXHALATION_MOUTH_WIDTH_CHANGE_THRESHOLD = cfg['exhalation_mouth_width_change_threshold']
+        self.AWAY_FROM_MOUTH_THRESHOLD = cfg['away_from_mouth_threshold']
 
         self._state = SmokingState.IDLE
         self._frames_in_state = 0

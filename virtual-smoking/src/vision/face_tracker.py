@@ -3,6 +3,8 @@ import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from utils.smoothing import Smoother
+from config import Config
 
 
 class FaceTracker:
@@ -43,6 +45,14 @@ class FaceTracker:
         self._image_shape = None
         self._timestamp = 0
 
+        # Smoothing for mouth measurements
+        window = Config.FACE_TRACKER['mouth_smoothing_window']
+        self._mouth_center_smoother = Smoother(window_size=window)
+        self._mouth_width_smoother = Smoother(window_size=window)
+        self._mouth_height_smoother = Smoother(window_size=window)
+        self._mouth_opening_smoother = Smoother(window_size=window)
+        self._mouth_aspect_ratio_smoother = Smoother(window_size=window)
+
     def process(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self._image_shape = frame.shape[:2]
@@ -79,37 +89,48 @@ class FaceTracker:
         if left and right and upper and lower:
             cx = (left[0] + right[0]) / 2
             cy = (upper[1] + lower[1]) / 2
-            return (cx, cy)
+            return self._mouth_center_smoother.add((cx, cy))
         if left and right:
-            return ((left[0] + right[0]) / 2, (left[1] + right[1]) / 2)
+            cx = (left[0] + right[0]) / 2
+            cy = (left[1] + right[1]) / 2
+            return self._mouth_center_smoother.add((cx, cy))
+        self._mouth_center_smoother.clear()
         return None
 
     def get_mouth_opening(self):
         upper = self.get_landmark('upper_lip')
         lower = self.get_landmark('lower_lip')
         if upper and lower:
-            return abs(lower[1] - upper[1])
+            opening = abs(lower[1] - upper[1])
+            return self._mouth_opening_smoother.add(opening)
+        self._mouth_opening_smoother.clear()
         return 0
 
     def get_mouth_width(self):
         left = self.get_landmark('mouth_left')
         right = self.get_landmark('mouth_right')
         if left and right:
-            return abs(right[0] - left[0])
+            width = abs(right[0] - left[0])
+            return self._mouth_width_smoother.add(width)
+        self._mouth_width_smoother.clear()
         return 0
 
     def get_mouth_height(self):
         upper = self.get_landmark('upper_lip_top')
         lower = self.get_landmark('lower_lip_bottom')
         if upper and lower:
-            return abs(lower[1] - upper[1])
+            height = abs(lower[1] - upper[1])
+            return self._mouth_height_smoother.add(height)
+        self._mouth_height_smoother.clear()
         return self.get_mouth_opening()
 
     def get_mouth_aspect_ratio(self):
         width = self.get_mouth_width()
         height = self.get_mouth_height()
         if height > 0:
-            return width / height
+            ar = width / height
+            return self._mouth_aspect_ratio_smoother.add(ar)
+        self._mouth_aspect_ratio_smoother.clear()
         return 0.0
 
     def get_mouth_measurements(self):
