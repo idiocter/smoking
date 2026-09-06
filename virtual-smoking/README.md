@@ -212,11 +212,61 @@ If missing, the application exits with a clear error message.
 ```bash
 # Run unit tests
 python tests/test_utils.py
+python tests/test_unit.py
 ```
 
 Tests cover:
 - Geometry functions (distance, midpoint, angle, clamp)
-- Smoothing (Smoother, OneEuroFilter, AngleOneEuroFilter)
+- Smoothing (Smoother, OneEuroFilter, AngleOneEuroFilter, OneEuroFilter2D)
+- Cigarette tracker
+- Cigarette-mouth detector
+- Smoking detector (state machine)
+- Smoke particle system
+
+---
+
+## Evaluation
+
+### Test Suite
+The project includes a comprehensive evaluation framework in `tests/`:
+
+```bash
+# Run unit tests
+python tests/test_unit.py
+
+# Run FPS benchmark (30 seconds)
+python tests/benchmark_fps.py --duration 30
+
+# Run stress test (5 minutes)
+python tests/stress_test.py --duration 5
+
+# Generate evaluation report
+python tests/run_evaluation.py
+```
+
+### Manual Testing Protocol
+See `tests/MANUAL_TEST_PROTOCOL.md` for standardized test procedures covering:
+- Normal smoking sequences (positive tests)
+- False positive scenarios (talking, smiling, random movement)
+- Tracking robustness (head/hand movement, distance, recovery)
+- Environmental conditions (lighting, backgrounds)
+- 20-cycle repeatability test
+- 5-minute stress test
+
+### Validation Checklist
+See `tests/VALIDATION_CHECKLIST.md` for complete validation criteria.
+
+### Metrics & Analysis
+```bash
+# Evaluate confusion matrix from test results
+python tests/evaluate_confusion.py
+```
+
+Results are saved to `results/` directory:
+- `evaluation_results.json` - Raw evaluation data
+- `EVALUATION_REPORT.md` - Formatted report
+- `benchmark_fps.json` - FPS benchmark results
+- `stress_test_results.json` - Stress test metrics
 
 ---
 

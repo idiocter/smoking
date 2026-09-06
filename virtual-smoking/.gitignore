@@ -80,3 +80,5 @@ build/
 dist/
 *.egg-info/
 AGENTS.md
+tests/
+Evaluation_REPORT.md
