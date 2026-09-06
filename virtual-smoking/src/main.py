@@ -10,6 +10,7 @@ from vision.face_tracker import FaceTracker
 from vision.hand_tracker import HandTracker
 from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
+from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
 
 
@@ -19,6 +20,7 @@ def main():
     hand_tracker = HandTracker()
     cigarette_tracker = CigaretteTracker()
     cigarette_mouth_detector = CigaretteMouthDetector()
+    smoking_detector = SmokingDetector()
     cigarette_renderer = CigaretteRenderer()
 
     fallback_renderer = CigaretteRendererFallback()
@@ -29,13 +31,14 @@ def main():
         print(f"Error: {e}")
         return 1
 
-    print("Virtual Smoking - Phase 6: Cigarette-Mouth Interaction Detection")
-    print("Controls: 'q' or ESC to quit, 'd' to toggle debug landmarks, 'c' to toggle cigarette debug, 'i' to toggle interaction debug")
+    print("Virtual Smoking - Phase 7: Rule-Based Smoking Pattern Detection")
+    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking")
     print()
 
     show_debug = True
     show_cigarette_debug = False
     show_interaction_debug = True
+    show_smoking_debug = True
 
     while True:
         frame = camera.read()
@@ -52,24 +55,26 @@ def main():
         interaction_state = CigaretteMouthState.FAR
         interaction_distance = None
         mouth_center = None
+        smoking_state = SmokingState.IDLE
+        pattern_detected = False
 
         if face_detected and cigarette_tracker.is_held:
             mouth_center = face_tracker.get_mouth_center()
             interaction_state = cigarette_mouth_detector.update(cigarette_tracker, face_tracker)
             interaction_distance = cigarette_mouth_detector.get_distance()
+            smoking_state = smoking_detector.update(cigarette_tracker, cigarette_mouth_detector, face_tracker)
+            pattern_detected = smoking_detector.is_pattern_detected()
 
         if show_debug:
             face_tracker.draw_landmarks(frame)
             hand_tracker.draw_landmarks(frame)
 
-        # Render cigarette
         if cigarette_tracker.is_held and cigarette_tracker.position is not None:
             if cigarette_renderer.cigarette_img is not None:
                 cigarette_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
             else:
                 fallback_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
 
-        # Draw mouth center and distance line
         if show_interaction_debug and mouth_center and cigarette_tracker.is_held:
             cig_pos = cigarette_tracker.get_mouth_end_position(mouth_center)
             if cig_pos:
@@ -95,7 +100,6 @@ def main():
                    (0, 255, 0) if cigarette_tracker.is_held else (0, 0, 255), 2)
         status_y += 30
 
-        # Interaction state
         state_color = (255, 255, 255)
         if interaction_state == CigaretteMouthState.NEAR:
             state_color = (0, 255, 0)
@@ -127,6 +131,50 @@ def main():
             cv2.putText(frame, f"Frames in state: {debug['frames_in_state']}",
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
+        if show_smoking_debug:
+            smoking_debug = smoking_detector.get_debug_info()
+            status_y += 30
+
+            smoke_color = (255, 255, 255)
+            if smoking_state == SmokingState.INHALING:
+                smoke_color = (0, 255, 0)
+            elif smoking_state == SmokingState.INHALATION_CANDIDATE:
+                smoke_color = (0, 255, 255)
+            elif smoking_state == SmokingState.NEAR_MOUTH:
+                smoke_color = (0, 200, 255)
+            elif smoking_state == SmokingState.APPROACHING:
+                smoke_color = (0, 165, 255)
+            elif smoking_state == SmokingState.COMPLETED:
+                smoke_color = (0, 255, 0)
+            elif smoking_state == SmokingState.IDLE:
+                smoke_color = (100, 100, 100)
+
+            cv2.putText(frame, f"Smoking State: {smoking_state}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, smoke_color, 2)
+            status_y += 30
+
+            if pattern_detected:
+                cv2.putText(frame, "Pattern: DETECTED",
+                           (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                status_y += 30
+            else:
+                cv2.putText(frame, "Pattern: NOT DETECTED",
+                           (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
+                status_y += 25
+
+            cv2.putText(frame, f"Frames in state: {smoking_debug['frames_in_state']}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+            status_y += 25
+
+            th = smoking_debug['thresholds']
+            cv2.putText(frame, f"Thresh: near={th['near_mouth']} open_chg={th['mouth_opening_change']} ar_chg={th['mouth_ar_change']:.1f}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+            status_y += 20
+
+            fc = smoking_debug['frame_counts']
+            cv2.putText(frame, f"Frames: appr={fc['approaching']} near={fc['near_mouth']} inh={fc['inhalation']} away={fc['away']}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+
         if show_cigarette_debug and cigarette_tracker.is_held:
             cig_debug = cigarette_tracker.get_debug_info()
             status_y += 30
@@ -136,14 +184,14 @@ def main():
             cv2.putText(frame, f"Cig Angle: {cig_debug['rotation_deg']:.1f} deg",
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
-        if face_detected and show_interaction_debug:
+        if face_detected and (show_interaction_debug or show_smoking_debug):
             mouth_data = face_tracker.get_mouth_measurements()
             status_y += 30
-            cv2.putText(frame, f"Mouth W: {mouth_data['width']:.1f} H: {mouth_data['height']:.1f} AR: {mouth_data['aspect_ratio']:.2f}",
+            cv2.putText(frame, f"Mouth W: {mouth_data['width']:.1f} H: {mouth_data['height']:.1f} Open: {mouth_data['opening']:.1f} AR: {mouth_data['aspect_ratio']:.2f}",
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
         status_y += 30
-        cv2.putText(frame, "Press 'q' to quit, 'd' landmarks, 'c' cig, 'i' interaction",
+        cv2.putText(frame, "Press 'q' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke",
                    (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
         cv2.imshow('Virtual Smoking', frame)
@@ -157,6 +205,8 @@ def main():
             show_cigarette_debug = not show_cigarette_debug
         elif key == ord('i'):
             show_interaction_debug = not show_interaction_debug
+        elif key == ord('s'):
+            show_smoking_debug = not show_smoking_debug
 
     camera.close()
     face_tracker.close()
