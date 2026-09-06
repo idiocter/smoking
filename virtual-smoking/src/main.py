@@ -13,6 +13,7 @@ from interaction.cigarette_mouth_detector import CigaretteMouthDetector, Cigaret
 from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
 from effects.glow import GlowEffect
+from effects.smoke import SmokeEffect
 
 
 def main():
@@ -24,6 +25,7 @@ def main():
     smoking_detector = SmokingDetector()
     cigarette_renderer = CigaretteRenderer()
     glow_effect = GlowEffect()
+    smoke_effect = SmokeEffect()
 
     fallback_renderer = CigaretteRendererFallback()
 
@@ -33,8 +35,8 @@ def main():
         print(f"Error: {e}")
         return 1
 
-    print("Virtual Smoking - Phase 9: Exhalation Pattern Detection")
-    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking, 'g' glow")
+    print("Virtual Smoking - Phase 10: Real-Time Virtual Smoke Particle Effect")
+    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking, 'g' glow, 'k' smoke")
     print()
 
     show_debug = True
@@ -42,6 +44,7 @@ def main():
     show_interaction_debug = True
     show_smoking_debug = True
     show_glow_debug = True
+    show_smoke_debug = True
 
     while True:
         frame = camera.read()
@@ -74,6 +77,9 @@ def main():
         glow_effect.set_target(is_inhaling)
         glow_effect.update()
 
+        # Update smoke effect with exhalation detection and mouth position
+        smoke_effect.update(exhalation_detected, mouth_center)
+
         if show_debug:
             face_tracker.draw_landmarks(frame)
             hand_tracker.draw_landmarks(frame)
@@ -85,6 +91,9 @@ def main():
                 fallback_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
 
             glow_effect.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, cigarette_tracker.length)
+
+        # Render smoke particles
+        smoke_effect.draw(frame)
 
         if show_interaction_debug and mouth_center and cigarette_tracker.is_held:
             cig_pos = cigarette_tracker.get_mouth_end_position(mouth_center)
@@ -214,6 +223,17 @@ def main():
             cv2.putText(frame, f"Fade In: {glow_effect.fade_in_speed} Fade Out: {glow_effect.fade_out_speed}",
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
 
+        if show_smoke_debug:
+            status_y += 30
+            cv2.putText(frame, f"Smoke: {'ACTIVE' if smoke_effect.is_active() else 'INACTIVE'}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 2)
+            status_y += 25
+            cv2.putText(frame, f"Particles: {smoke_effect.get_particle_count()}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+            status_y += 25
+            cv2.putText(frame, f"Exhalation Triggered: {'YES' if smoke_effect.exhalation_triggered else 'NO'}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
         if show_cigarette_debug and cigarette_tracker.is_held:
             cig_debug = cigarette_tracker.get_debug_info()
             status_y += 30
@@ -230,7 +250,7 @@ def main():
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
         status_y += 30
-        cv2.putText(frame, "Press 'q' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke, 'g' glow",
+        cv2.putText(frame, "Press 'q' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke, 'g' glow, 'k' smoke",
                    (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
         cv2.imshow('Virtual Smoking', frame)
@@ -248,6 +268,8 @@ def main():
             show_smoking_debug = not show_smoking_debug
         elif key == ord('g'):
             show_glow_debug = not show_glow_debug
+        elif key == ord('k'):
+            show_smoke_debug = not show_smoke_debug
 
     camera.close()
     face_tracker.close()
