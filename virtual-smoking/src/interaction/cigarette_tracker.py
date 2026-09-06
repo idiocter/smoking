@@ -34,14 +34,11 @@ class CigaretteTracker:
         if not (thumb_tip and index_tip):
             return None, None
 
-        # Position: midpoint between thumb tip and index tip
         position = midpoint(thumb_tip, index_tip)
 
-        # Orientation: vector from thumb to index (primary grip direction)
         dx = index_tip[0] - thumb_tip[0]
         dy = index_tip[1] - thumb_tip[1]
 
-        # If fingers are too close, use index finger direction as fallback
         if distance(thumb_tip, index_tip) < 15:
             if index_mcp and index_tip:
                 dx = index_tip[0] - index_mcp[0]
@@ -54,7 +51,6 @@ class CigaretteTracker:
 
         rotation = vector_angle((dx, dy))
 
-        # Normalize rotation to [-pi, pi]
         while rotation > np.pi:
             rotation -= 2 * np.pi
         while rotation < -np.pi:
@@ -81,13 +77,10 @@ class CigaretteTracker:
         self._raw_position = raw_pos
         self._raw_rotation = raw_rot
 
-        # Apply smoothing
         if hasattr(self.position_smoother, '__call__'):
-            # OneEuroFilter
             self.position = self.position_smoother(raw_pos)
             self.rotation = self.rotation_smoother(raw_rot)
         else:
-            # Simple moving average
             self.position = self.position_smoother.add(raw_pos)
             self.rotation = self.rotation_smoother.add(raw_rot)
 
@@ -109,6 +102,21 @@ class CigaretteTracker:
         dx = -np.cos(self.rotation) * (self.length / 2)
         dy = -np.sin(self.rotation) * (self.length / 2)
         return (self.position[0] + dx, self.position[1] + dy)
+
+    def get_mouth_end_position(self, mouth_center=None):
+        if self.position is None:
+            return None
+
+        tip = self.get_tip_position()
+        base = self.get_base_position()
+
+        if mouth_center is None:
+            return tip
+
+        tip_dist = distance(tip, mouth_center)
+        base_dist = distance(base, mouth_center)
+
+        return tip if tip_dist < base_dist else base
 
     def get_orientation_vector(self):
         if self.position is None:
