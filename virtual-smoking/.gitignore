@@ -46,9 +46,13 @@ screenshots/
 *.pb
 *.h5
 *.tflite
+*.task
 models/
 weights/
 checkpoints/
+
+# Utility scripts
+create_*.py
 
 # Data / datasets
 data/
