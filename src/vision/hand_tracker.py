@@ -1,18 +1,25 @@
 import cv2
-import mediapipe as mp
 import numpy as np
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 
 class HandTracker:
     def __init__(self, max_hands=2, min_detection_confidence=0.5, min_tracking_confidence=0.5):
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            max_num_hands=max_hands,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence
+        base_options = python.BaseOptions(
+            model_asset_path='hand_landmarker.task',
+            delegate=python.BaseOptions.Delegate.CPU
         )
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
+        options = vision.HandLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.VIDEO,
+            num_hands=max_hands,
+            min_hand_detection_confidence=min_detection_confidence,
+            min_hand_presence_confidence=min_tracking_confidence,
+            min_tracking_confidence=min_tracking_confidence,
+        )
+        self.landmarker = vision.HandLandmarker.create_from_options(options)
 
         self.landmark_indices = {
             'wrist': 0,
@@ -41,24 +48,27 @@ class HandTracker:
         self._landmarks = None
         self._handedness = None
         self._image_shape = None
+        self._timestamp = 0
 
     def process(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self._image_shape = frame.shape[:2]
-        results = self.hands.process(rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        self._timestamp += 1
+        result = self.landmarker.detect_for_video(mp_image, self._timestamp)
         self._landmarks = None
         self._handedness = None
-        if results.multi_hand_landmarks:
-            self._landmarks = results.multi_hand_landmarks[0]
-            if results.multi_handedness:
-                self._handedness = results.multi_handedness[0].classification[0].label
+        if result.hand_landmarks:
+            self._landmarks = result.hand_landmarks[0]
+            if result.handedness:
+                self._handedness = result.handedness[0][0].category_name
         return self._landmarks is not None
 
     def get_landmark(self, name):
         if self._landmarks is None or name not in self.landmark_indices:
             return None
         idx = self.landmark_indices[name]
-        lm = self._landmarks.landmark[idx]
+        lm = self._landmarks[idx]
         h, w = self._image_shape
         return (lm.x * w, lm.y * h)
 
@@ -69,7 +79,7 @@ class HandTracker:
         if self._landmarks is None:
             return None
         h, w = self._image_shape
-        return [(lm.x * w, lm.y * h) for lm in self._landmarks.landmark]
+        return [(lm.x * w, lm.y * h) for lm in self._landmarks]
 
     def get_handedness(self):
         return self._handedness
@@ -102,14 +112,6 @@ class HandTracker:
     def draw_landmarks(self, frame, draw_connections=True):
         if self._landmarks is None:
             return
-        if draw_connections:
-            self.mp_drawing.draw_landmarks(
-                frame,
-                self._landmarks,
-                self.mp_hands.HAND_CONNECTIONS,
-                self.mp_drawing_styles.get_default_hand_landmarks_style(),
-                self.mp_drawing_styles.get_default_hand_connections_style()
-            )
 
         for name, idx in self.landmark_indices.items():
             pt = self.get_landmark(name)
@@ -119,4 +121,4 @@ class HandTracker:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.25, (255, 0, 0), 1)
 
     def close(self):
-        self.hands.close()
+        self.landmarker.close()
