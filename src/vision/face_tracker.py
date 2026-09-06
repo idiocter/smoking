@@ -35,6 +35,8 @@ class FaceTracker:
             'right_eye': 263,
             'left_eyebrow': 70,
             'right_eyebrow': 300,
+            'upper_lip_top': 12,
+            'lower_lip_bottom': 15,
         }
 
         self._landmarks = None
@@ -72,6 +74,12 @@ class FaceTracker:
     def get_mouth_center(self):
         left = self.get_landmark('mouth_left')
         right = self.get_landmark('mouth_right')
+        upper = self.get_landmark('upper_lip')
+        lower = self.get_landmark('lower_lip')
+        if left and right and upper and lower:
+            cx = (left[0] + right[0]) / 2
+            cy = (upper[1] + lower[1]) / 2
+            return (cx, cy)
         if left and right:
             return ((left[0] + right[0]) / 2, (left[1] + right[1]) / 2)
         return None
@@ -82,6 +90,36 @@ class FaceTracker:
         if upper and lower:
             return abs(lower[1] - upper[1])
         return 0
+
+    def get_mouth_width(self):
+        left = self.get_landmark('mouth_left')
+        right = self.get_landmark('mouth_right')
+        if left and right:
+            return abs(right[0] - left[0])
+        return 0
+
+    def get_mouth_height(self):
+        upper = self.get_landmark('upper_lip_top')
+        lower = self.get_landmark('lower_lip_bottom')
+        if upper and lower:
+            return abs(lower[1] - upper[1])
+        return self.get_mouth_opening()
+
+    def get_mouth_aspect_ratio(self):
+        width = self.get_mouth_width()
+        height = self.get_mouth_height()
+        if height > 0:
+            return width / height
+        return 0.0
+
+    def get_mouth_measurements(self):
+        return {
+            'center': self.get_mouth_center(),
+            'opening': self.get_mouth_opening(),
+            'width': self.get_mouth_width(),
+            'height': self.get_mouth_height(),
+            'aspect_ratio': self.get_mouth_aspect_ratio(),
+        }
 
     def is_detected(self):
         return self._landmarks is not None
