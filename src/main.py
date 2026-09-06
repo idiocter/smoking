@@ -12,6 +12,7 @@ from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
+from effects.glow import GlowEffect
 
 
 def main():
@@ -22,6 +23,7 @@ def main():
     cigarette_mouth_detector = CigaretteMouthDetector()
     smoking_detector = SmokingDetector()
     cigarette_renderer = CigaretteRenderer()
+    glow_effect = GlowEffect()
 
     fallback_renderer = CigaretteRendererFallback()
 
@@ -31,14 +33,15 @@ def main():
         print(f"Error: {e}")
         return 1
 
-    print("Virtual Smoking - Phase 7: Rule-Based Smoking Pattern Detection")
-    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking")
+    print("Virtual Smoking - Phase 8: Cigarette Glow Effect")
+    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking, 'g' glow debug")
     print()
 
     show_debug = True
     show_cigarette_debug = False
     show_interaction_debug = True
     show_smoking_debug = True
+    show_glow_debug = True
 
     while True:
         frame = camera.read()
@@ -65,15 +68,24 @@ def main():
             smoking_state = smoking_detector.update(cigarette_tracker, cigarette_mouth_detector, face_tracker)
             pattern_detected = smoking_detector.is_pattern_detected()
 
+        # Update glow effect based on smoking state
+        is_inhaling = (smoking_state == SmokingState.INHALING)
+        glow_effect.set_target(is_inhaling)
+        glow_effect.update()
+
         if show_debug:
             face_tracker.draw_landmarks(frame)
             hand_tracker.draw_landmarks(frame)
 
+        # Render cigarette
         if cigarette_tracker.is_held and cigarette_tracker.position is not None:
             if cigarette_renderer.cigarette_img is not None:
                 cigarette_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
             else:
                 fallback_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
+
+            # Render glow effect on top
+            glow_effect.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, cigarette_tracker.length)
 
         if show_interaction_debug and mouth_center and cigarette_tracker.is_held:
             cig_pos = cigarette_tracker.get_mouth_end_position(mouth_center)
@@ -175,6 +187,17 @@ def main():
             cv2.putText(frame, f"Frames: appr={fc['approaching']} near={fc['near_mouth']} inh={fc['inhalation']} away={fc['away']}",
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
 
+        if show_glow_debug:
+            status_y += 30
+            cv2.putText(frame, f"Glow Intensity: {glow_effect.get_intensity():.2f}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            status_y += 25
+            cv2.putText(frame, f"Glow Target: {'ON' if is_inhaling else 'OFF'}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+            status_y += 25
+            cv2.putText(frame, f"Fade In: {glow_effect.fade_in_speed} Fade Out: {glow_effect.fade_out_speed}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+
         if show_cigarette_debug and cigarette_tracker.is_held:
             cig_debug = cigarette_tracker.get_debug_info()
             status_y += 30
@@ -191,7 +214,7 @@ def main():
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
         status_y += 30
-        cv2.putText(frame, "Press 'q' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke",
+        cv2.putText(frame, "Press 'q' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke, 'g' glow",
                    (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
 
         cv2.imshow('Virtual Smoking', frame)
@@ -207,6 +230,8 @@ def main():
             show_interaction_debug = not show_interaction_debug
         elif key == ord('s'):
             show_smoking_debug = not show_smoking_debug
+        elif key == ord('g'):
+            show_glow_debug = not show_glow_debug
 
     camera.close()
     face_tracker.close()
