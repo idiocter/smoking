@@ -60,6 +60,24 @@ class OneEuroFilter:
         self.dx_prev = None
 
 
+class OneEuroFilter2D:
+    """OneEuroFilter for 2D positions (x, y tuples)."""
+    def __init__(self, freq=30.0, mincutoff=1.0, beta=0.0, dcutoff=1.0):
+        self.filter_x = OneEuroFilter(freq, mincutoff, beta, dcutoff)
+        self.filter_y = OneEuroFilter(freq, mincutoff, beta, dcutoff)
+
+    def __call__(self, pos):
+        if pos is None:
+            return None
+        x = self.filter_x(pos[0])
+        y = self.filter_y(pos[1])
+        return (x, y)
+
+    def reset(self):
+        self.filter_x.reset()
+        self.filter_y.reset()
+
+
 class AngleOneEuroFilter:
     def __init__(self, freq=30.0, mincutoff=1.0, beta=0.0, dcutoff=1.0):
         self.freq = freq

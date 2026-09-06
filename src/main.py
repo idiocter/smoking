@@ -114,11 +114,26 @@ class VirtualSmokingApp:
                 print("Failed to read frame")
                 break
 
-            face_detected = self.face_tracker.process(frame)
-            hand_detected = self.hand_tracker.process(frame)
+            try:
+                face_detected = self.face_tracker.process(frame)
+            except Exception as e:
+                print(f"Error in face_tracker.process: {e}")
+                import traceback; traceback.print_exc()
+                face_detected = False
 
-            hand_landmarks = self.hand_tracker.get_all_landmarks()
-            self.cigarette_tracker.update(hand_landmarks)
+            try:
+                hand_detected = self.hand_tracker.process(frame)
+            except Exception as e:
+                print(f"Error in hand_tracker.process: {e}")
+                import traceback; traceback.print_exc()
+                hand_detected = False
+
+            try:
+                hand_landmarks = self.hand_tracker.get_all_landmarks()
+                self.cigarette_tracker.update(hand_landmarks)
+            except Exception as e:
+                print(f"Error in cigarette_tracker.update: {e}")
+                import traceback; traceback.print_exc()
 
             interaction_state = CigaretteMouthState.FAR
             interaction_distance = None
@@ -127,15 +142,19 @@ class VirtualSmokingApp:
             pattern_detected = False
             exhalation_detected = False
 
-            if face_detected and self.cigarette_tracker.is_held:
-                mouth_center = self.face_tracker.get_mouth_center()
-                interaction_state = self.cigarette_mouth_detector.update(self.cigarette_tracker, self.face_tracker)
-                interaction_distance = self.cigarette_mouth_detector.get_distance()
-                smoking_state = self.smoking_detector.update(
-                    self.cigarette_tracker, self.cigarette_mouth_detector, self.face_tracker
-                )
-                pattern_detected = self.smoking_detector.is_pattern_detected()
-                exhalation_detected = self.smoking_detector.is_exhalation_detected()
+            try:
+                if face_detected and self.cigarette_tracker.is_held:
+                    mouth_center = self.face_tracker.get_mouth_center()
+                    interaction_state = self.cigarette_mouth_detector.update(self.cigarette_tracker, self.face_tracker)
+                    interaction_distance = self.cigarette_mouth_detector.get_distance()
+                    smoking_state = self.smoking_detector.update(
+                        self.cigarette_tracker, self.cigarette_mouth_detector, self.face_tracker
+                    )
+                    pattern_detected = self.smoking_detector.is_pattern_detected()
+                    exhalation_detected = self.smoking_detector.is_exhalation_detected()
+            except Exception as e:
+                print(f"Error in interaction/smoking detection: {e}")
+                import traceback; traceback.print_exc()
 
             is_inhaling = (smoking_state == SmokingState.INHALING)
             self.glow_effect.set_target(is_inhaling)
