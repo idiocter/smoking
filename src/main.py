@@ -33,8 +33,8 @@ def main():
         print(f"Error: {e}")
         return 1
 
-    print("Virtual Smoking - Phase 8: Cigarette Glow Effect")
-    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking, 'g' glow debug")
+    print("Virtual Smoking - Phase 9: Exhalation Pattern Detection")
+    print("Controls: 'q' or ESC to quit, 'd' landmarks, 'c' cigarette, 'i' interaction, 's' smoking, 'g' glow")
     print()
 
     show_debug = True
@@ -60,6 +60,7 @@ def main():
         mouth_center = None
         smoking_state = SmokingState.IDLE
         pattern_detected = False
+        exhalation_detected = False
 
         if face_detected and cigarette_tracker.is_held:
             mouth_center = face_tracker.get_mouth_center()
@@ -67,8 +68,8 @@ def main():
             interaction_distance = cigarette_mouth_detector.get_distance()
             smoking_state = smoking_detector.update(cigarette_tracker, cigarette_mouth_detector, face_tracker)
             pattern_detected = smoking_detector.is_pattern_detected()
+            exhalation_detected = smoking_detector.is_exhalation_detected()
 
-        # Update glow effect based on smoking state
         is_inhaling = (smoking_state == SmokingState.INHALING)
         glow_effect.set_target(is_inhaling)
         glow_effect.update()
@@ -77,14 +78,12 @@ def main():
             face_tracker.draw_landmarks(frame)
             hand_tracker.draw_landmarks(frame)
 
-        # Render cigarette
         if cigarette_tracker.is_held and cigarette_tracker.position is not None:
             if cigarette_renderer.cigarette_img is not None:
                 cigarette_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
             else:
                 fallback_renderer.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, 0.0)
 
-            # Render glow effect on top
             glow_effect.draw(frame, cigarette_tracker.position, cigarette_tracker.rotation, cigarette_tracker.length)
 
         if show_interaction_debug and mouth_center and cigarette_tracker.is_held:
@@ -150,6 +149,10 @@ def main():
             smoke_color = (255, 255, 255)
             if smoking_state == SmokingState.INHALING:
                 smoke_color = (0, 255, 0)
+            elif smoking_state == SmokingState.EXHALING:
+                smoke_color = (255, 0, 255)
+            elif smoking_state == SmokingState.EXHALATION_CANDIDATE:
+                smoke_color = (255, 100, 255)
             elif smoking_state == SmokingState.INHALATION_CANDIDATE:
                 smoke_color = (0, 255, 255)
             elif smoking_state == SmokingState.NEAR_MOUTH:
@@ -166,11 +169,20 @@ def main():
             status_y += 30
 
             if pattern_detected:
-                cv2.putText(frame, "Pattern: DETECTED",
+                cv2.putText(frame, "Inhalation Pattern: DETECTED",
                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 status_y += 30
             else:
-                cv2.putText(frame, "Pattern: NOT DETECTED",
+                cv2.putText(frame, "Inhalation Pattern: NOT DETECTED",
+                           (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
+                status_y += 25
+
+            if exhalation_detected:
+                cv2.putText(frame, "Exhalation Pattern: DETECTED",
+                           (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                status_y += 30
+            else:
+                cv2.putText(frame, "Exhalation Pattern: NOT DETECTED",
                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
                 status_y += 25
 
@@ -178,14 +190,18 @@ def main():
                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
             status_y += 25
 
+            cv2.putText(frame, f"Inhalation Done: {'YES' if smoking_debug.get('inhalation_completed', False) else 'NO'}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+            status_y += 25
+
             th = smoking_debug['thresholds']
-            cv2.putText(frame, f"Thresh: near={th['near_mouth']} open_chg={th['mouth_opening_change']} ar_chg={th['mouth_ar_change']:.1f}",
-                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
-            status_y += 20
+            cv2.putText(frame, f"Thresh: near={th['near_mouth']} open_chg={th['mouth_opening_change']} ar_chg={th['mouth_ar_change']:.1f} exh_open={th.get('exhalation_opening', 0)} exh_w={th.get('exhalation_width_change', 0)}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1)
+            status_y += 18
 
             fc = smoking_debug['frame_counts']
-            cv2.putText(frame, f"Frames: appr={fc['approaching']} near={fc['near_mouth']} inh={fc['inhalation']} away={fc['away']}",
-                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+            cv2.putText(frame, f"Frames: appr={fc['approaching']} near={fc['near_mouth']} inh={fc['inhalation']} away={fc['away']} exh={fc.get('exhalation', 0)}",
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1)
 
         if show_glow_debug:
             status_y += 30
