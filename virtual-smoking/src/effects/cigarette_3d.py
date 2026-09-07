@@ -45,7 +45,7 @@ uniform vec3 light_pos;
 uniform vec3 view_pos;
 uniform vec3 light_color;
 uniform float emissive_intensity;
-uniform bool use_emissive;
+uniform int use_emissive;
 
 out vec4 frag_color;
 
@@ -55,11 +55,8 @@ void main() {
     float metallic = metallic_roughness.b;
     float roughness = metallic_roughness.g;
     
-    // Normal mapping
-    vec3 normal_map = texture(normal_map, v_uv).rgb;
-    normal_map = normalize(normal_map * 2.0 - 1.0);
+    // Use vertex normal directly (skip normal map for now to avoid tangent space issues)
     vec3 N = normalize(v_normal);
-    N = normal_map; // Simplified - using normal map directly
     
     // Lighting
     vec3 L = normalize(light_pos - v_position);
@@ -82,7 +79,7 @@ void main() {
     
     // Emissive (glow)
     vec3 emissive = vec3(0.0);
-    if (use_emissive) {
+    if (use_emissive != 0) {
         vec3 emissive_tex = texture(emissive_map, v_uv).rgb;
         emissive = emissive_tex * emissive_intensity * vec3(1.0, 0.5, 0.1); // Orange glow
     }
@@ -342,10 +339,10 @@ class Cigarette3DRenderer:
         
         # Estimate depth from hand size / distance to mouth
         # Simple heuristic: use fixed depth with some variation
-        depth = -2.0  # 2 units in front of camera
+        depth = -1.5  # 1.5 units in front of camera (closer)
         
         # World position
-        world_pos = Vector3([norm_x * 1.5, norm_y * 1.5, depth])
+        world_pos = Vector3([norm_x * 2.0, norm_y * 2.0, depth])
         
         # Apply model offset
         world_pos = world_pos + self.model_offset
@@ -383,9 +380,7 @@ class Cigarette3DRenderer:
         if 1 in self.textures:
             self.textures[1].use(1)
             self.program['metallic_roughness_map'].value = 1
-        if 2 in self.textures:
-            self.textures[2].use(2)
-            self.program['normal_map'].value = 2
+        # normal_map removed from shader
         if 3 in self.textures:
             self.textures[3].use(3)
             self.program['emissive_map'].value = 3
