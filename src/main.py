@@ -85,12 +85,12 @@ class VirtualSmokingApp:
                 self.cigarette_renderer_3d = Cigarette3DRenderer(
                     'assets/cigarette/cigarette.glb',
                     config={
-                        'model_scale': 0.005,  # Adjust based on model size
+                        'model_scale': 1.0,  # Full scale
                         'model_offset_x': 0.0,
-                        'model_offset_y': -0.05,
+                        'model_offset_y': -0.1,
                         'model_offset_z': 0.0,
-                        'model_rotation_offset_x': -np.pi/2,  # Adjust model orientation
-                        'model_rotation_offset_y': 0.0,
+                        'model_rotation_offset_x': 0.0,  # No X rotation - keep model upright
+                        'model_rotation_offset_y': np.pi,  # Rotate 180 on Y to face camera
                         'model_rotation_offset_z': 0.0,
                         'glow_fade_in': Config.GLOW_EFFECT['fade_in_speed'],
                         'glow_fade_out': Config.GLOW_EFFECT['fade_out_speed'],
