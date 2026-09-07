@@ -51,6 +51,9 @@ models/
 weights/
 checkpoints/
 
+# Extracted textures (generated from GLB)
+assets/cigarette/textures/
+
 # Utility scripts
 create_*.py
 

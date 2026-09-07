@@ -12,6 +12,7 @@ from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
+from effects.cigarette_3d import Cigarette3DRenderer, Cigarette3DRendererFallback
 from effects.glow import GlowEffect
 from effects.smoke import SmokeEffect
 from config import Config
@@ -20,6 +21,7 @@ from config import Config
 def validate_assets():
     """Verify required assets exist at startup."""
     assets = [
+        os.path.join('assets', 'cigarette', 'cigarette.glb'),
         os.path.join('assets', 'cigarette', 'cigarette.png'),
         os.path.join('assets', 'cigarette', 'cigarette_glow.png'),
     ]
@@ -45,11 +47,12 @@ class VirtualSmokingApp:
         self.cigarette_tracker = None
         self.cigarette_mouth_detector = None
         self.smoking_detector = None
-        self.cigarette_renderer = None
+        self.cigarette_renderer_3d = None
         self.glow_effect = None
         self.smoke_effect = None
         self.fallback_renderer = None
         self.running = False
+        self.use_3d = True  # Toggle between 3D and 2D
 
     def initialize(self):
         """Initialize all components."""
@@ -76,14 +79,47 @@ class VirtualSmokingApp:
             self.cigarette_tracker = CigaretteTracker()
             self.cigarette_mouth_detector = CigaretteMouthDetector()
             self.smoking_detector = SmokingDetector()
+            
+            # Initialize 3D cigarette renderer
+            try:
+                self.cigarette_renderer_3d = Cigarette3DRenderer(
+                    'assets/cigarette/cigarette.glb',
+                    config={
+                        'model_scale': 0.005,  # Adjust based on model size
+                        'model_offset_x': 0.0,
+                        'model_offset_y': -0.05,
+                        'model_offset_z': 0.0,
+                        'model_rotation_offset_x': -np.pi/2,  # Adjust model orientation
+                        'model_rotation_offset_y': 0.0,
+                        'model_rotation_offset_z': 0.0,
+                        'glow_fade_in': Config.GLOW_EFFECT['fade_in_speed'],
+                        'glow_fade_out': Config.GLOW_EFFECT['fade_out_speed'],
+                    }
+                )
+                self.use_3d = True
+                print("3D Cigarette Renderer initialized successfully")
+            except Exception as e:
+                print(f"Warning: 3D renderer failed to initialize, falling back to 2D: {e}")
+                import traceback
+                traceback.print_exc()
+                self.cigarette_renderer_3d = None
+                self.use_3d = False
+            
+            # Fallback 2D renderer
             self.cigarette_renderer = CigaretteRenderer()
+            self.fallback_renderer = CigaretteRendererFallback()
+            
+            # Glow effect (for 2D fallback)
             self.glow_effect = GlowEffect(
                 max_intensity=Config.GLOW_EFFECT['max_intensity'],
                 fade_in_speed=Config.GLOW_EFFECT['fade_in_speed'],
                 fade_out_speed=Config.GLOW_EFFECT['fade_out_speed']
             )
+            
+            self.smoking_detector = SmokingDetector()
+            self.cigarette_mouth_detector = CigaretteMouthDetector()
+            self.cigarette_tracker = CigaretteTracker()
             self.smoke_effect = SmokeEffect()
-            self.fallback_renderer = CigaretteRendererFallback()
 
             self.camera.open()
             return True
@@ -93,6 +129,8 @@ class VirtualSmokingApp:
             return False
         except Exception as e:
             print(f"Unexpected initialization error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def run(self):
@@ -103,7 +141,7 @@ class VirtualSmokingApp:
         print("Virtual Smoking - Ready")
         if self.debug_mode:
             print("Debug mode: ON")
-            print("Controls: 'q'/'ESC' quit, 'd' landmarks, 'c' cig, 'i' inter, 's' smoke, 'g' glow, 'k' smoke")
+            print("Controls: 'q'/'ESC' quit, 'D' toggle debug, '3' toggle 3D/2D")
         else:
             print("Controls: 'q'/'ESC' to quit, 'D' to enable debug mode")
         print()
@@ -113,6 +151,12 @@ class VirtualSmokingApp:
             if frame is None:
                 print("Failed to read frame")
                 break
+
+            h, w = frame.shape[:2]
+            
+            # Initialize 3D renderer projection on first frame
+            if self.use_3d and self.cigarette_renderer_3d:
+                self.cigarette_renderer_3d.set_view_projection(w, h)
 
             try:
                 face_detected = self.face_tracker.process(frame)
@@ -157,19 +201,30 @@ class VirtualSmokingApp:
                 import traceback; traceback.print_exc()
 
             is_inhaling = (smoking_state == SmokingState.INHALING)
-            self.glow_effect.set_target(is_inhaling)
-            self.glow_effect.update()
+            
+            # Update glow - for 3D renderer, use built-in glow; for 2D, use separate glow effect
+            if self.use_3d and self.cigarette_renderer_3d:
+                self.cigarette_renderer_3d.update_glow(is_inhaling)
+            else:
+                self.glow_effect.set_target(is_inhaling)
+                self.glow_effect.update()
 
             self.smoke_effect.update(exhalation_detected, mouth_center)
 
             # Render AR effects
             if self.cigarette_tracker.is_held and self.cigarette_tracker.position is not None:
-                if self.cigarette_renderer.cigarette_img is not None:
-                    self.cigarette_renderer.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, 0.0)
+                if self.use_3d and self.cigarette_renderer_3d:
+                    # Use 3D renderer (handles glow internally)
+                    frame = self.cigarette_renderer_3d.render(frame, self.cigarette_tracker)
                 else:
-                    self.fallback_renderer.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, 0.0)
+                    # 2D fallback
+                    if self.cigarette_renderer.cigarette_img is not None:
+                        self.cigarette_renderer.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, 0.0)
+                    else:
+                        self.fallback_renderer.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, 0.0)
 
-                self.glow_effect.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, self.cigarette_tracker.length)
+                    # Apply 2D glow effect
+                    self.glow_effect.draw(frame, self.cigarette_tracker.position, self.cigarette_tracker.rotation, self.cigarette_tracker.length)
 
             self.smoke_effect.draw(frame)
 
@@ -185,18 +240,11 @@ class VirtualSmokingApp:
             elif key == ord('D') or key == ord('d'):
                 self.debug_mode = not self.debug_mode
                 print(f"Debug mode: {'ON' if self.debug_mode else 'OFF'}")
+            elif key == ord('3'):
+                self.use_3d = not self.use_3d
+                print(f"3D Renderer: {'ON' if self.use_3d else 'OFF (2D fallback)'}")
             elif self.debug_mode:
-                # Debug keys only work in debug mode
-                if key == ord('c'):
-                    pass  # cigarette debug not separate anymore
-                elif key == ord('i'):
-                    pass
-                elif key == ord('s'):
-                    pass
-                elif key == ord('g'):
-                    pass
-                elif key == ord('k'):
-                    pass
+                pass  # Debug keys only work in debug mode
 
         self.shutdown()
 
@@ -373,6 +421,8 @@ class VirtualSmokingApp:
             self.face_tracker.close()
         if self.hand_tracker:
             self.hand_tracker.close()
+        if self.cigarette_renderer_3d:
+            self.cigarette_renderer_3d.close()
         cv2.destroyAllWindows()
 
 
