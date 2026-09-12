@@ -1,6 +1,6 @@
 import cv2
-import numpy as np
 import mediapipe as mp
+from pathlib import Path
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from utils.smoothing import Smoother
@@ -8,9 +8,12 @@ from config import Config
 
 
 class FaceTracker:
-    def __init__(self, max_faces=1, min_detection_confidence=0.5, min_tracking_confidence=0.5):
+    def __init__(self, max_faces=1, min_detection_confidence=0.5,
+                 min_tracking_confidence=0.5, model_asset_path=None):
+        if model_asset_path is None:
+            model_asset_path = Path(__file__).resolve().parents[2] / 'face_landmarker.task'
         base_options = python.BaseOptions(
-            model_asset_path='face_landmarker.task',
+            model_asset_path=str(model_asset_path),
             delegate=python.BaseOptions.Delegate.CPU
         )
         options = vision.FaceLandmarkerOptions(

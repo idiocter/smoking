@@ -2,8 +2,7 @@ import moderngl
 import numpy as np
 import pygltflib
 import cv2
-import os
-from pyrr import Matrix44, Vector3, Quaternion
+from pyrr import Matrix44
 
 
 VERTEX_SHADER = """
@@ -12,19 +11,20 @@ VERTEX_SHADER = """
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec2 in_uv;
+layout(location = 3) in float in_longitudinal;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-out vec3 v_position;
 out vec3 v_normal;
 out vec2 v_uv;
+out float v_longitudinal;
 
 void main() {
-    v_position = (model * vec4(in_position, 1.0)).xyz;
     v_normal = mat3(transpose(inverse(model))) * in_normal;
     v_uv = in_uv;
+    v_longitudinal = in_longitudinal;
     gl_Position = projection * view * model * vec4(in_position, 1.0);
 }
 """
@@ -32,18 +32,14 @@ void main() {
 FRAGMENT_SHADER = """
 #version 330 core
 
-in vec3 v_position;
 in vec3 v_normal;
 in vec2 v_uv;
+in float v_longitudinal;
 
 uniform sampler2D albedo_map;
 uniform sampler2D metallic_roughness_map;
-uniform sampler2D normal_map;
 uniform sampler2D emissive_map;
 
-uniform vec3 light_pos;
-uniform vec3 view_pos;
-uniform vec3 light_color;
 uniform float emissive_intensity;
 uniform int use_emissive;
 
@@ -53,43 +49,31 @@ void main() {
     vec3 albedo = texture(albedo_map, v_uv).rgb;
     vec3 metallic_roughness = texture(metallic_roughness_map, v_uv).rgb;
     float metallic = metallic_roughness.b;
-    float roughness = metallic_roughness.g;
-    
-    // Use vertex normal directly (skip normal map for now to avoid tangent space issues)
+    float roughness = clamp(metallic_roughness.g, 0.04, 1.0);
+
     vec3 N = normalize(v_normal);
-    
-    // Lighting
-    vec3 L = normalize(light_pos - v_position);
-    vec3 V = normalize(view_pos - v_position);
+    vec3 L = normalize(vec3(-0.35, 0.45, 1.0));
+    vec3 V = vec3(0.0, 0.0, 1.0);
     vec3 H = normalize(L + V);
-    
+
     float NdotL = max(dot(N, L), 0.0);
     float NdotH = max(dot(N, H), 0.0);
-    
-    // Simplified PBR
-    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-    float NDF = 1.0 / (3.14159 * roughness * roughness * pow(NdotH * NdotH * (1.0 - k) + k, 2.0));
-    float G = NdotL / (NdotL * (1.0 - k) + k);
-    vec3 F = vec3(0.04) + (1.0 - vec3(0.04)) * pow(1.0 - NdotH, 5.0);
-    
-    vec3 diffuse = albedo / 3.14159 * (1.0 - metallic);
-    vec3 specular = F * NDF * G / (4.0 * NdotL + 0.001);
-    
-    vec3 lighting = (diffuse + specular) * light_color * NdotL;
-    
-    // Emissive (glow)
+
+    float ambient = 0.42;
+    float diffuse = 0.58 * NdotL;
+    float specular_power = mix(64.0, 4.0, roughness);
+    float specular = pow(NdotH, specular_power) * mix(0.08, 0.35, metallic);
+
     vec3 emissive = vec3(0.0);
     if (use_emissive != 0) {
-        vec3 emissive_tex = texture(emissive_map, v_uv).rgb;
-        emissive = emissive_tex * emissive_intensity * vec3(1.0, 0.5, 0.1); // Orange glow
+        float texture_mask = texture(emissive_map, v_uv).r;
+        float tip_mask = smoothstep(0.90, 0.985, v_longitudinal);
+        float ember_mask = max(texture_mask, tip_mask);
+        emissive = ember_mask * emissive_intensity * vec3(1.0, 0.28, 0.03) * 1.8;
     }
-    
-    vec3 color = albedo * lighting + emissive;
-    
-    // Alpha from albedo (assuming opaque)
-    float alpha = 1.0;
-    
-    frag_color = vec4(color, alpha);
+
+    vec3 color = albedo * (ambient + diffuse) + vec3(specular) + emissive;
+    frag_color = vec4(color, 1.0);
 }
 """
 
@@ -118,22 +102,26 @@ class Cigarette3DRenderer:
         self.fbo = None
         self.fbo_texture = None
         self.fbo_depth = None
-        
+
         self._vertex_count = 0
         self._index_count = 0
-        
-        self._init_gl()
-        self._load_model(model_path)
-        self._load_textures(model_path)
-        self._setup_framebuffer()
-        
-        # Camera setup (will be updated per frame)
+        self._model_extent = np.ones(3, dtype=np.float32)
+
+        try:
+            self._init_gl()
+            gltf = pygltflib.GLTF2().load(str(model_path))
+            buffer_data = gltf.binary_blob()
+            self._load_model(gltf, buffer_data)
+            self._load_textures(gltf, buffer_data)
+            self._setup_framebuffer()
+        except Exception:
+            self.close()
+            raise
+
+        # Projection is updated for the current video frame size.
         self.view_matrix = Matrix44.identity()
         self.projection_matrix = Matrix44.identity()
-        self.light_pos = Vector3([2.0, 2.0, 2.0])
-        self.view_pos = Vector3([0.0, 0.0, 3.0])
-        self.light_color = Vector3([1.0, 1.0, 1.0])
-        
+
         # Glow state
         self.emissive_intensity = 0.0
         self.target_emissive_intensity = 0.0
@@ -142,10 +130,8 @@ class Cigarette3DRenderer:
 
     def _init_gl(self):
         """Initialize ModernGL context for offscreen rendering."""
-        # Create a headless context
         self.ctx = moderngl.create_context(standalone=True)
-        self.ctx.enable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
-        self.ctx.cull_face = 'back'
+        self.ctx.enable(moderngl.DEPTH_TEST)
         
         # Compile shaders
         self.program = self.ctx.program(
@@ -153,60 +139,68 @@ class Cigarette3DRenderer:
             fragment_shader=FRAGMENT_SHADER
         )
 
-    def _load_model(self, model_path):
+    @staticmethod
+    def _accessor_data(gltf, buffer_data, accessor_index, components, dtype):
+        """Read a tightly packed GLB accessor with safe zero offsets."""
+        accessor = gltf.accessors[accessor_index]
+        view = gltf.bufferViews[accessor.bufferView]
+        offset = (view.byteOffset or 0) + (accessor.byteOffset or 0)
+        item_size = np.dtype(dtype).itemsize * components
+        stride = view.byteStride or item_size
+
+        if stride == item_size:
+            length = accessor.count * item_size
+            return np.frombuffer(buffer_data[offset:offset + length], dtype=dtype).reshape(-1, components)
+
+        values = np.empty((accessor.count, components), dtype=dtype)
+        for index in range(accessor.count):
+            start = offset + index * stride
+            values[index] = np.frombuffer(
+                buffer_data[start:start + item_size], dtype=dtype, count=components
+            )
+        return values
+
+    def _load_model(self, gltf, buffer_data):
         """Load GLB model and extract mesh data."""
-        gltf = pygltflib.GLTF2().load(model_path)
-        buffer_data = gltf.binary_blob()
-        
         mesh = gltf.meshes[0]
         prim = mesh.primitives[0]
-        
-        # Get accessors
-        pos_acc = gltf.accessors[prim.attributes.POSITION]
-        norm_acc = gltf.accessors[prim.attributes.NORMAL]
-        uv_acc = gltf.accessors[prim.attributes.TEXCOORD_0]
         idx_acc = gltf.accessors[prim.indices]
-        
-        # Get buffer views
-        pos_bv = gltf.bufferViews[pos_acc.bufferView]
-        norm_bv = gltf.bufferViews[norm_acc.bufferView]
-        uv_bv = gltf.bufferViews[uv_acc.bufferView]
-        idx_bv = gltf.bufferViews[idx_acc.bufferView]
-        
-        # Extract data
-        pos_data = np.frombuffer(
-            buffer_data[pos_bv.byteOffset + pos_acc.byteOffset:
-                       pos_bv.byteOffset + pos_acc.byteOffset + pos_acc.count * 12],
-            dtype=np.float32).reshape(-1, 3)
-        norm_data = np.frombuffer(
-            buffer_data[norm_bv.byteOffset + norm_acc.byteOffset:
-                       norm_bv.byteOffset + norm_acc.byteOffset + norm_acc.count * 12],
-            dtype=np.float32).reshape(-1, 3)
-        uv_data = np.frombuffer(
-            buffer_data[uv_bv.byteOffset + uv_acc.byteOffset:
-                       uv_bv.byteOffset + uv_acc.byteOffset + uv_acc.count * 8],
-            dtype=np.float32).reshape(-1, 2)
-        idx_data = np.frombuffer(
-            buffer_data[idx_bv.byteOffset + idx_acc.byteOffset:
-                       idx_bv.byteOffset + idx_acc.byteOffset + idx_acc.count * 4],
-            dtype=np.uint32).reshape(-1)
-        
-        # Center the model
-        center = pos_data.mean(axis=0)
+
+        pos_data = self._accessor_data(
+            gltf, buffer_data, prim.attributes.POSITION, 3, np.dtype('<f4')
+        )
+        norm_data = self._accessor_data(
+            gltf, buffer_data, prim.attributes.NORMAL, 3, np.dtype('<f4')
+        )
+        uv_data = self._accessor_data(
+            gltf, buffer_data, prim.attributes.TEXCOORD_0, 2, np.dtype('<f4')
+        )
+        index_types = {
+            5121: np.dtype('u1'),
+            5123: np.dtype('<u2'),
+            5125: np.dtype('<u4'),
+        }
+        if idx_acc.componentType not in index_types:
+            raise ValueError(f"Unsupported GLB index component type: {idx_acc.componentType}")
+        idx_data = self._accessor_data(
+            gltf, buffer_data, prim.indices, 1, index_types[idx_acc.componentType]
+        ).reshape(-1).astype(np.uint32)
+
+        bounds_min = pos_data.min(axis=0)
+        bounds_max = pos_data.max(axis=0)
+        center = (bounds_min + bounds_max) / 2.0
         pos_data = pos_data - center
+        self._model_extent = bounds_max - bounds_min
+        longitudinal_data = (
+            (pos_data[:, 0] / self._model_extent[0]) + 0.5
+        ).reshape(-1, 1)
         
-        # Scale model
-        scale = self.model_scale
-        pos_data = pos_data * scale
-        
-        # Apply model offset
-        pos_data = pos_data + self.model_offset
-        
-        # Interleave vertex data: position(3), normal(3), uv(2) = 8 floats per vertex
+        # Interleave position, normal, UV, and normalized length coordinate.
         vertex_data = np.hstack([
             pos_data.astype(np.float32),
             norm_data.astype(np.float32),
-            uv_data.astype(np.float32)
+            uv_data.astype(np.float32),
+            longitudinal_data.astype(np.float32),
         ]).flatten()
         
         self._vertex_count = len(pos_data)
@@ -220,46 +214,68 @@ class Cigarette3DRenderer:
         self.vao = self.ctx.vertex_array(
             self.program,
             [
-                (self.vbo, '3f 3f 2f', 'in_position', 'in_normal', 'in_uv')
+                (
+                    self.vbo,
+                    '3f 3f 2f 1f',
+                    'in_position',
+                    'in_normal',
+                    'in_uv',
+                    'in_longitudinal',
+                )
             ],
             self.ibo
         )
 
-    def _load_textures(self, model_path):
+    def _create_texture(self, image):
+        if image.ndim == 2:
+            components = 1
+        elif image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
+            components = 4
+        else:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            components = 3
+
+        image = cv2.flip(image, 0)
+        texture = self.ctx.texture(
+            image.shape[:2][::-1], components, image.tobytes(), alignment=1
+        )
+        texture.build_mipmaps()
+        texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+        texture.repeat_x = True
+        texture.repeat_y = True
+        return texture
+
+    def _load_textures(self, gltf, buffer_data):
         """Load textures from GLB."""
-        gltf = pygltflib.GLTF2().load(model_path)
-        buffer_data = gltf.binary_blob()
-        
-        # Material has: baseColorTexture=0, metallicRoughnessTexture=1
-        # We'll use texture 0 for albedo, texture 1 for metallic/roughness
-        # Texture 2 for normal, texture 3 for emissive
-        for tex_idx in range(4):
-            img = gltf.images[tex_idx]
+        for name, source_index in self._material_texture_sources(gltf).items():
+            img = gltf.images[source_index]
+            if img.bufferView is None:
+                raise ValueError(f"External GLB texture URIs are unsupported: {img.uri}")
             bv = gltf.bufferViews[img.bufferView]
-            tex_data = buffer_data[bv.byteOffset:bv.byteOffset + bv.byteLength]
-            
-            # Decode image
+            offset = bv.byteOffset or 0
+            tex_data = buffer_data[offset:offset + bv.byteLength]
             nparr = np.frombuffer(tex_data, np.uint8)
             img_cv = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
-            
-            if img_cv is not None:
-                # Convert BGR to RGB
-                if len(img_cv.shape) == 3:
-                    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-                # Flip vertically for OpenGL
-                img_cv = cv2.flip(img_cv, 0)
-                
-                # Create texture
-                texture = self.ctx.texture(img_cv.shape[:2][::-1], 
-                                          3 if len(img_cv.shape) == 3 else 1,
-                                          img_cv.tobytes())
-                texture.build_mipmaps()
-                texture.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
-                texture.repeat_x = True
-                texture.repeat_y = True
-                self.textures[tex_idx] = texture
-            else:
-                print(f"Warning: Failed to decode texture {tex_idx}")
+            if img_cv is None:
+                raise ValueError(f"Could not decode GLB {name} texture")
+            self.textures[name] = self._create_texture(img_cv)
+
+    @staticmethod
+    def _material_texture_sources(gltf):
+        """Resolve material slots through glTF texture-to-image references."""
+        primitive = gltf.meshes[0].primitives[0]
+        material = gltf.materials[primitive.material]
+        pbr = material.pbrMetallicRoughness
+        texture_indices = {
+            'albedo': pbr.baseColorTexture.index,
+            'metallic_roughness': pbr.metallicRoughnessTexture.index,
+            'emissive': material.emissiveTexture.index,
+        }
+        return {
+            name: gltf.textures[texture_index].source
+            for name, texture_index in texture_indices.items()
+        }
 
     def _setup_framebuffer(self):
         """Set up offscreen framebuffer for rendering."""
@@ -281,16 +297,11 @@ class Cigarette3DRenderer:
             self.fbo_depth = self.ctx.depth_texture((width, height))
             self.fbo = self.ctx.framebuffer(color_attachments=[self.fbo_texture], depth_attachment=self.fbo_depth)
 
-    def set_view_projection(self, width, height, fov=60.0, near=0.1, far=100.0):
-        """Update view and projection matrices based on camera parameters."""
-        aspect = width / height
-        self.projection_matrix = Matrix44.perspective_projection(fov, aspect, near, far)
-        
-        # View matrix - camera at origin looking at -Z
-        self.view_matrix = Matrix44.look_at(
-            self.view_pos,  # eye
-            Vector3([0.0, 0.0, 0.0]),  # center
-            Vector3([0.0, 1.0, 0.0])   # up
+    def set_view_projection(self, width, height):
+        """Map model coordinates to the exact video-frame pixel space."""
+        self.view_matrix = Matrix44.identity()
+        self.projection_matrix = Matrix44.orthogonal_projection(
+            0.0, float(width), 0.0, float(height), -100.0, 100.0
         )
 
     def update_glow(self, should_glow):
@@ -305,6 +316,26 @@ class Cigarette3DRenderer:
         elif self.emissive_intensity > self.target_emissive_intensity:
             self.emissive_intensity = max(self.target_emissive_intensity, 
                                          self.emissive_intensity - self.fade_out_speed)
+
+    def _model_matrix(self, frame_height, cigarette_tracker):
+        """Build a pixel-aligned transform from the tracked cigarette pose."""
+        pixel_scale = cigarette_tracker.length / self._model_extent[0]
+        pixel_scale *= self.model_scale
+        pos_2d = cigarette_tracker.position
+        world_pos = np.array([
+            pos_2d[0] + self.model_offset[0],
+            frame_height - pos_2d[1] - self.model_offset[1],
+            self.model_offset[2],
+        ], dtype=np.float32)
+
+        model_matrix = Matrix44.from_translation(world_pos)
+        model_matrix *= Matrix44.from_z_rotation(
+            cigarette_tracker.rotation + self.rotation_offset[2]
+        )
+        model_matrix *= Matrix44.from_x_rotation(self.rotation_offset[0])
+        model_matrix *= Matrix44.from_y_rotation(self.rotation_offset[1])
+        model_matrix *= Matrix44.from_scale([pixel_scale, pixel_scale, pixel_scale])
+        return model_matrix
 
     def render(self, frame, cigarette_tracker, face_tracker=None):
         """
@@ -324,39 +355,9 @@ class Cigarette3DRenderer:
         # Update glow animation
         self._update_glow_animation()
         
-        # Get cigarette position and rotation from tracker
-        # Tracker gives 2D position and rotation in image coordinates
-        # We need to convert to 3D world coordinates
-        pos_2d = cigarette_tracker.position
-        rot_2d = cigarette_tracker.rotation
-        
-        # Convert 2D position to 3D world position
-        # Use simple projection: assume camera at origin, looking at -Z
-        # Image coordinates: (0,0) top-left, (w,h) bottom-right
-        # Normalize to [-1, 1] then map to world
-        norm_x = (pos_2d[0] / w) * 2.0 - 1.0
-        norm_y = 1.0 - (pos_2d[1] / h) * 2.0  # Flip Y
-        
-        # Estimate depth from hand size / distance to mouth
-        # Simple heuristic: use fixed depth with some variation
-        depth = -1.5  # 1.5 units in front of camera (closer)
-        
-        # World position
-        world_pos = Vector3([norm_x * 2.0, norm_y * 2.0, depth])
-        
-        # Apply model offset
-        world_pos = world_pos + self.model_offset
-        
-        # Rotation: 2D rotation maps to Y-axis rotation (around vertical)
-        # plus some X rotation for tilt
-        rot_y = -rot_2d + self.rotation_offset[1]  # Negative because image coords
-        rot_x = self.rotation_offset[0]  # Fixed tilt
-        rot_z = self.rotation_offset[2]
-        
-        # Build model matrix
-        model_matrix = Matrix44.identity()
-        model_matrix = model_matrix * Matrix44.from_translation(world_pos)
-        model_matrix = model_matrix * Matrix44.from_eulers([rot_x, rot_y, rot_z])
+        if self._model_extent[0] <= 0:
+            return frame
+        model_matrix = self._model_matrix(h, cigarette_tracker)
         
         # Render to offscreen framebuffer
         self.fbo.use()
@@ -367,23 +368,16 @@ class Cigarette3DRenderer:
         self.program['model'].write(model_matrix.astype('f4').tobytes())
         self.program['view'].write(self.view_matrix.astype('f4').tobytes())
         self.program['projection'].write(self.projection_matrix.astype('f4').tobytes())
-        self.program['light_pos'].write(self.light_pos.astype('f4'))
-        self.program['view_pos'].write(self.view_pos.astype('f4'))
-        self.program['light_color'].write(self.light_color.astype('f4'))
         self.program['emissive_intensity'].write(np.float32(self.emissive_intensity))
         self.program['use_emissive'].write(np.int32(1 if self.emissive_intensity > 0.01 else 0))
         
         # Bind textures
-        if 0 in self.textures:
-            self.textures[0].use(0)
-            self.program['albedo_map'].value = 0
-        if 1 in self.textures:
-            self.textures[1].use(1)
-            self.program['metallic_roughness_map'].value = 1
-        # normal_map removed from shader
-        if 3 in self.textures:
-            self.textures[3].use(3)
-            self.program['emissive_map'].value = 3
+        self.textures['albedo'].use(0)
+        self.program['albedo_map'].value = 0
+        self.textures['metallic_roughness'].use(1)
+        self.program['metallic_roughness_map'].value = 1
+        self.textures['emissive'].use(2)
+        self.program['emissive_map'].value = 2
         
         # Draw
         self.vao.render(moderngl.TRIANGLES)
@@ -419,6 +413,7 @@ class Cigarette3DRenderer:
             'target_emissive': self.target_emissive_intensity,
             'vertex_count': self._vertex_count,
             'index_count': self._index_count,
+            'model_extent': self._model_extent.copy(),
         }
 
     def close(self):

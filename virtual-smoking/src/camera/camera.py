@@ -3,10 +3,11 @@ import time
 
 
 class Camera:
-    def __init__(self, device_index=0, width=1280, height=720):
+    def __init__(self, device_index=0, width=1280, height=720, fps=30):
         self.device_index = device_index
         self.width = width
         self.height = height
+        self.target_fps = fps
         self.cap = None
         self.fps = 0
         self._prev_time = 0
@@ -18,7 +19,7 @@ class Camera:
             raise RuntimeError(f"Cannot open camera device {self.device_index}")
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FPS, self.target_fps)
         self._prev_time = time.time()
         return True
 
