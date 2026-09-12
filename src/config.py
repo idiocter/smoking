@@ -74,6 +74,16 @@ class Config:
         'fade_out_speed': 0.08,
     }
 
+    CIGARETTE_3D = {
+        'model_scale': 1.0,
+        'model_offset_x': 0.0,
+        'model_offset_y': 0.0,
+        'model_offset_z': 0.0,
+        'model_rotation_offset_x': 0.0,
+        'model_rotation_offset_y': 0.0,
+        'model_rotation_offset_z': 0.0,
+    }
+
     SMOKE_EFFECT = {
         'particle_count_min': 8,
         'particle_count_max': 16,

@@ -1,7 +1,8 @@
+import argparse
 import cv2
 import sys
 import os
-import numpy as np
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,34 +13,45 @@ from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
-from effects.cigarette_3d import Cigarette3DRenderer, Cigarette3DRendererFallback
 from effects.glow import GlowEffect
 from effects.smoke import SmokeEffect
 from config import Config
 
+try:
+    from effects.cigarette_3d import Cigarette3DRenderer
+    CIGARETTE_3D_IMPORT_ERROR = None
+except ImportError as exc:
+    Cigarette3DRenderer = None
+    CIGARETTE_3D_IMPORT_ERROR = exc
 
-def validate_assets():
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ASSET_DIR = PROJECT_ROOT / 'assets' / 'cigarette'
+FACE_MODEL_PATH = PROJECT_ROOT / 'face_landmarker.task'
+HAND_MODEL_PATH = PROJECT_ROOT / 'hand_landmarker.task'
+
+
+def validate_assets(project_root=PROJECT_ROOT):
     """Verify required assets exist at startup."""
+    project_root = Path(project_root)
     assets = [
-        os.path.join('assets', 'cigarette', 'cigarette.glb'),
-        os.path.join('assets', 'cigarette', 'cigarette.png'),
-        os.path.join('assets', 'cigarette', 'cigarette_glow.png'),
+        project_root / 'face_landmarker.task',
+        project_root / 'hand_landmarker.task',
+        project_root / 'assets' / 'cigarette' / 'cigarette.png',
+        project_root / 'assets' / 'cigarette' / 'cigarette_glow.png',
     ]
-    missing = []
-    for asset in assets:
-        if not os.path.exists(asset):
-            missing.append(asset)
+    missing = [asset for asset in assets if not asset.is_file()]
     if missing:
         print("ERROR: Missing required assets:")
-        for m in missing:
-            print(f"  {m}")
-        print("Run create_assets.py or ensure assets are present.")
+        for asset in missing:
+            print(f"  {asset}")
+        print("Follow the model download instructions in README.md.")
         return False
     return True
 
 
 class VirtualSmokingApp:
-    def __init__(self, debug_mode=False):
+    def __init__(self, debug_mode=False, prefer_3d=True):
         self.debug_mode = debug_mode
         self.camera = None
         self.face_tracker = None
@@ -52,7 +64,8 @@ class VirtualSmokingApp:
         self.smoke_effect = None
         self.fallback_renderer = None
         self.running = False
-        self.use_3d = True  # Toggle between 3D and 2D
+        self.prefer_3d = prefer_3d
+        self.use_3d = False
 
     def initialize(self):
         """Initialize all components."""
@@ -64,61 +77,60 @@ class VirtualSmokingApp:
             self.camera = Camera(
                 device_index=Config.CAMERA['device_index'],
                 width=Config.CAMERA['width'],
-                height=Config.CAMERA['height']
+                height=Config.CAMERA['height'],
+                fps=Config.CAMERA['fps'],
             )
             self.face_tracker = FaceTracker(
                 max_faces=Config.FACE_TRACKER['max_faces'],
                 min_detection_confidence=Config.FACE_TRACKER['min_detection_confidence'],
-                min_tracking_confidence=Config.FACE_TRACKER['min_tracking_confidence']
+                min_tracking_confidence=Config.FACE_TRACKER['min_tracking_confidence'],
+                model_asset_path=FACE_MODEL_PATH,
             )
             self.hand_tracker = HandTracker(
                 max_hands=Config.HAND_TRACKER['max_hands'],
                 min_detection_confidence=Config.HAND_TRACKER['min_detection_confidence'],
-                min_tracking_confidence=Config.HAND_TRACKER['min_tracking_confidence']
+                min_tracking_confidence=Config.HAND_TRACKER['min_tracking_confidence'],
+                model_asset_path=HAND_MODEL_PATH,
             )
             self.cigarette_tracker = CigaretteTracker()
             self.cigarette_mouth_detector = CigaretteMouthDetector()
             self.smoking_detector = SmokingDetector()
-            
+
             # Initialize 3D cigarette renderer
-            try:
-                self.cigarette_renderer_3d = Cigarette3DRenderer(
-                    'assets/cigarette/cigarette.glb',
-                    config={
-                        'model_scale': 1.0,  # Full scale
-                        'model_offset_x': 0.0,
-                        'model_offset_y': -0.1,
-                        'model_offset_z': 0.0,
-                        'model_rotation_offset_x': 0.0,  # No X rotation - keep model upright
-                        'model_rotation_offset_y': np.pi,  # Rotate 180 on Y to face camera
-                        'model_rotation_offset_z': 0.0,
+            model_path = ASSET_DIR / 'cigarette.glb'
+            if self.prefer_3d and Cigarette3DRenderer is None:
+                print(f"Warning: 3D dependencies unavailable; using 2D renderer: {CIGARETTE_3D_IMPORT_ERROR}")
+            elif self.prefer_3d and not model_path.is_file():
+                print(f"Warning: 3D model not found at {model_path}; using 2D renderer")
+            elif self.prefer_3d:
+                try:
+                    renderer_config = Config.CIGARETTE_3D.copy()
+                    renderer_config.update({
                         'glow_fade_in': Config.GLOW_EFFECT['fade_in_speed'],
                         'glow_fade_out': Config.GLOW_EFFECT['fade_out_speed'],
-                    }
-                )
-                self.use_3d = True
-                print("3D Cigarette Renderer initialized successfully")
-            except Exception as e:
-                print(f"Warning: 3D renderer failed to initialize, falling back to 2D: {e}")
-                import traceback
-                traceback.print_exc()
-                self.cigarette_renderer_3d = None
-                self.use_3d = False
+                    })
+                    self.cigarette_renderer_3d = Cigarette3DRenderer(
+                        model_path,
+                        config=renderer_config,
+                    )
+                    self.use_3d = True
+                    print("3D cigarette renderer initialized successfully")
+                except Exception as exc:
+                    print(f"Warning: 3D renderer failed to initialize; using 2D renderer: {exc}")
+                    self.cigarette_renderer_3d = None
             
             # Fallback 2D renderer
-            self.cigarette_renderer = CigaretteRenderer()
+            self.cigarette_renderer = CigaretteRenderer(ASSET_DIR / 'cigarette.png')
             self.fallback_renderer = CigaretteRendererFallback()
             
             # Glow effect (for 2D fallback)
             self.glow_effect = GlowEffect(
+                asset_path=ASSET_DIR / 'cigarette_glow.png',
                 max_intensity=Config.GLOW_EFFECT['max_intensity'],
                 fade_in_speed=Config.GLOW_EFFECT['fade_in_speed'],
                 fade_out_speed=Config.GLOW_EFFECT['fade_out_speed']
             )
             
-            self.smoking_detector = SmokingDetector()
-            self.cigarette_mouth_detector = CigaretteMouthDetector()
-            self.cigarette_tracker = CigaretteTracker()
             self.smoke_effect = SmokeEffect()
 
             self.camera.open()
@@ -126,11 +138,13 @@ class VirtualSmokingApp:
 
         except RuntimeError as e:
             print(f"Initialization error: {e}")
+            self.shutdown()
             return False
         except Exception as e:
             print(f"Unexpected initialization error: {e}")
             import traceback
             traceback.print_exc()
+            self.shutdown()
             return False
 
     def run(self):
@@ -241,8 +255,11 @@ class VirtualSmokingApp:
                 self.debug_mode = not self.debug_mode
                 print(f"Debug mode: {'ON' if self.debug_mode else 'OFF'}")
             elif key == ord('3'):
-                self.use_3d = not self.use_3d
-                print(f"3D Renderer: {'ON' if self.use_3d else 'OFF (2D fallback)'}")
+                if self.cigarette_renderer_3d:
+                    self.use_3d = not self.use_3d
+                    print(f"3D Renderer: {'ON' if self.use_3d else 'OFF (2D fallback)'}")
+                else:
+                    print("3D renderer is unavailable; continuing in 2D mode")
             elif self.debug_mode:
                 pass  # Debug keys only work in debug mode
 
@@ -417,19 +434,30 @@ class VirtualSmokingApp:
         self.running = False
         if self.camera:
             self.camera.close()
+            self.camera = None
         if self.face_tracker:
             self.face_tracker.close()
+            self.face_tracker = None
         if self.hand_tracker:
             self.hand_tracker.close()
+            self.hand_tracker = None
         if self.cigarette_renderer_3d:
             self.cigarette_renderer_3d.close()
+            self.cigarette_renderer_3d = None
         cv2.destroyAllWindows()
 
 
-def main():
-    debug_mode = '--debug' in sys.argv or '-d' in sys.argv
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description='Run the Virtual Smoking AR application')
+    parser.add_argument('-d', '--debug', action='store_true', help='show tracking and state overlays')
+    parser.add_argument('--2d', dest='prefer_3d', action='store_false', help='use the 2D renderer')
+    return parser.parse_args(argv)
 
-    app = VirtualSmokingApp(debug_mode=debug_mode)
+
+def main(argv=None):
+    args = parse_args(argv)
+
+    app = VirtualSmokingApp(debug_mode=args.debug, prefer_3d=args.prefer_3d)
     if not app.initialize():
         return 1
 
@@ -439,7 +467,7 @@ def main():
         print("\nInterrupted")
     except Exception as e:
         print(f"Runtime error: {e}")
-        if debug_mode:
+        if args.debug:
             import traceback
             traceback.print_exc()
     finally:

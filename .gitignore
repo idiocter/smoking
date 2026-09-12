@@ -77,11 +77,14 @@ htmlcov/
 .pytest_cache/
 .tox/
 .mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Local caches and profiling output
+.cache/
+*.prof
 
 # Build / distribution
 build/
 dist/
 *.egg-info/
-AGENTS.md
-tests/
-Evaluation_REPORT.md
