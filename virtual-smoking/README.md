@@ -24,7 +24,7 @@ curl -sL https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_la
 ```
 
 **Requirements:**
-- Python 3.11+
+- Python 3.11-3.13
 - Webcam
 - macOS/Linux/Windows
 
@@ -40,6 +40,12 @@ python src/main.py
 python src/main.py --debug
 # or
 python src/main.py -d
+
+# Force the portable 2D renderer
+python src/main.py --2d
+
+# Render a 3D asset preview without opening the webcam
+python scripts/render_3d_preview.py
 ```
 
 **Camera permission:** On macOS, grant camera access in System Settings → Privacy & Security → Camera.
@@ -51,17 +57,8 @@ python src/main.py -d
 | Key | Action |
 |-----|--------|
 | `q` / `ESC` | Quit application |
-| `D` | Toggle debug mode (production ↔ debug) |
-
-**Debug mode only:**
-| Key | Action |
-|-----|--------|
-| `d` | Toggle face/hand landmark visualization |
-| `c` | (Reserved) |
-| `i` | (Reserved) |
-| `s` | (Reserved) |
-| `g` | (Reserved) |
-| `k` | (Reserved) |
+| `D` / `d` | Toggle debug mode (production ↔ debug) |
+| `3` | Toggle between 3D and 2D when 3D is available |
 
 ---
 
@@ -114,8 +111,8 @@ IDLE
 
 ### Visual Effects
 
-1. **Virtual Cigarette**: PNG overlay with alpha transparency, follows thumb-index midpoint, rotates with finger orientation
-2. **Ember Glow**: Separate PNG asset, fades in/out smoothly when INHALING state active
+1. **Virtual Cigarette**: GLB model with a PNG-based 2D fallback, follows the thumb-index midpoint and finger orientation
+2. **Ember Glow**: Emissive 3D material or PNG fallback, fades in/out smoothly when INHALING state is active
 3. **Smoke Particles**: 8-16 particles per exhalation, expand, drift upward, fade out over 30-60 frames
 
 ---
@@ -165,6 +162,7 @@ virtual-smoking/
 │   │
 │   ├── effects/
 │   │   ├── cigarette.py             # Cigarette PNG renderer + fallback
+│   │   ├── cigarette_3d.py          # ModernGL GLB renderer
 │   │   ├── glow.py                  # Ember glow with fade
 │   │   └── smoke.py                 # Particle system
 │   │
@@ -174,6 +172,7 @@ virtual-smoking/
 │
 ├── assets/
 │   ├── cigarette/
+│   │   ├── cigarette.glb            # 3D cigarette model
 │   │   ├── cigarette.png            # 180x30 RGBA
 │   │   └── cigarette_glow.png       # Radial ember gradient
 │   │
@@ -192,11 +191,13 @@ virtual-smoking/
 
 ## Asset Validation
 
-At startup, the application verifies these assets exist:
+At startup, the application verifies these required files exist:
+- `face_landmarker.task`
+- `hand_landmarker.task`
 - `assets/cigarette/cigarette.png`
 - `assets/cigarette/cigarette_glow.png`
 
-If missing, the application exits with a clear error message.
+The GLB is optional: when it or the 3D dependencies are unavailable, the application starts with the 2D renderer.
 
 ---
 
@@ -213,6 +214,8 @@ If missing, the application exits with a clear error message.
 # Run unit tests
 python tests/test_utils.py
 python tests/test_unit.py
+python tests/test_startup.py
+python tests/test_cigarette_3d.py
 ```
 
 Tests cover:
@@ -222,6 +225,8 @@ Tests cover:
 - Cigarette-mouth detector
 - Smoking detector (state machine)
 - Smoke particle system
+- Startup paths and command-line options
+- GLB material bindings and pixel-aligned 3D transforms
 
 ---
 
@@ -278,7 +283,7 @@ Results are saved to `results/` directory:
 - **Mouth detection**: Requires clear face view; masks/beards may interfere
 - **Visual only**: Detection is based on predefined visual patterns, not physiological breathing
 - **Single user**: Tracks one face and one hand at a time
-- **2D overlay**: No depth awareness; cigarette doesn't occlude behind fingers
+- **Approximate depth**: The 3D cigarette uses estimated screen-space placement and does not occlude behind fingers
 
 ---
 
