@@ -87,6 +87,7 @@ class Config:
         'mouth_aspect_ratio_change_threshold': 0.3,
         'exhalation_window': 15,
         'exhalation_frame_count': 5,
+        'exhalation_duration_frames': 45,
         'exhalation_stability_frames': 2,
         'exhalation_mouth_opening_threshold': 6,
         'exhalation_mouth_width_change_threshold': 4,
@@ -111,8 +112,12 @@ class Config:
     }
 
     SMOKE_EFFECT = {
-        'particle_count_min': 8,
-        'particle_count_max': 16,
+        # Emit a few particles continuously instead of one large, abrupt puff.
+        'particle_count_min': 2,
+        'particle_count_max': 4,
+        'spawn_interval_frames': 2,
+        'max_particles': 90,
+        'blur_sigma': 3.5,
         'spread_angle': 0.5,
         'base_angle': -np.pi / 2,
         'initial_size_min': 6,

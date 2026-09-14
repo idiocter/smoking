@@ -26,6 +26,7 @@ class SmokingDetector:
         self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD = cfg['mouth_aspect_ratio_change_threshold']
         self.EXHALATION_WINDOW = cfg['exhalation_window']
         self.EXHALATION_FRAME_COUNT = cfg['exhalation_frame_count']
+        self.EXHALATION_DURATION_FRAMES = cfg['exhalation_duration_frames']
         self.EXHALATION_STABILITY_FRAMES = cfg['exhalation_stability_frames']
         self.EXHALATION_MOUTH_OPENING_THRESHOLD = cfg['exhalation_mouth_opening_threshold']
         self.EXHALATION_MOUTH_WIDTH_CHANGE_THRESHOLD = cfg['exhalation_mouth_width_change_threshold']
@@ -53,6 +54,9 @@ class SmokingDetector:
         self._prev_mouth_height = None
         self._baseline_mouth_opening = None
         self._baseline_mouth_aspect_ratio = None
+        self._exhale_baseline_opening = None
+        self._exhale_baseline_width = None
+        self._exhale_baseline_aspect_ratio = None
         self._inhalation_completed = False
 
         self.current_state = SmokingState.IDLE
@@ -94,6 +98,9 @@ class SmokingDetector:
         self._exhalation_stability_count = 0
         self._baseline_mouth_opening = None
         self._baseline_mouth_aspect_ratio = None
+        self._exhale_baseline_opening = None
+        self._exhale_baseline_width = None
+        self._exhale_baseline_aspect_ratio = None
         self._inhalation_completed = False
         self.pattern_detected = False
         self.exhalation_detected = False
@@ -128,6 +135,9 @@ class SmokingDetector:
         self._prev_mouth_aspect_ratio = mouth_aspect_ratio
         self._prev_mouth_width = mouth_width
         self._prev_mouth_height = mouth_height
+        self._exhale_baseline_opening = mouth_opening
+        self._exhale_baseline_width = mouth_width
+        self._exhale_baseline_aspect_ratio = mouth_aspect_ratio
 
     def _update_state(self, cig_state, distance, mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height):
         self._frames_in_state += 1
@@ -212,12 +222,25 @@ class SmokingDetector:
                 self._transition(SmokingState.INHALING)
                 self._away_count = 0
             elif face_tracker_is_valid(mouth_opening, mouth_width, mouth_height):
-                opening_delta = abs(mouth_opening - self._prev_mouth_opening)
-                width_delta = abs(mouth_width - self._prev_mouth_width)
+                opening_delta = abs(mouth_opening - self._exhale_baseline_opening)
+                width_delta = abs(mouth_width - self._exhale_baseline_width)
+                aspect_ratio_delta = abs(
+                    mouth_aspect_ratio - self._exhale_baseline_aspect_ratio
+                )
+                shape_changed = (
+                    opening_delta > self.EXHALATION_MOUTH_OPENING_THRESHOLD * 0.35 or
+                    width_delta > self.EXHALATION_MOUTH_WIDTH_CHANGE_THRESHOLD or
+                    aspect_ratio_delta > self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD * 0.6
+                )
+                # Landmark motion settles during a real exhale, so a steady open
+                # mouth must remain valid after the first few frames.
+                sustained_open = (
+                    self._frames_in_state >= 3 and
+                    mouth_opening > self.EXHALATION_MOUTH_OPENING_THRESHOLD * 1.3
+                )
                 exhalation_pattern = (
                     mouth_opening > self.EXHALATION_MOUTH_OPENING_THRESHOLD and
-                    (opening_delta > self.EXHALATION_MOUTH_OPENING_THRESHOLD * 0.5 or
-                     width_delta > self.EXHALATION_MOUTH_WIDTH_CHANGE_THRESHOLD)
+                    (shape_changed or sustained_open)
                 )
 
                 if exhalation_pattern:
@@ -244,7 +267,7 @@ class SmokingDetector:
                 self._transition(SmokingState.COMPLETED)
 
         elif self._state == SmokingState.EXHALING:
-            if self._frames_in_state >= self.EXHALATION_WINDOW:
+            if self._frames_in_state >= self.EXHALATION_DURATION_FRAMES:
                 self.exhalation_detected = False
                 self._transition(SmokingState.COMPLETED)
 
@@ -284,6 +307,7 @@ class SmokingDetector:
                 'inhalation': self.INHALATION_FRAME_COUNT,
                 'away': self.AWAY_FRAME_COUNT,
                 'exhalation': self.EXHALATION_FRAME_COUNT,
+                'exhalation_duration': self.EXHALATION_DURATION_FRAMES,
                 'exhalation_stability': self.EXHALATION_STABILITY_FRAMES,
             }
         }
@@ -308,6 +332,9 @@ class SmokingDetector:
         self._prev_mouth_height = None
         self._baseline_mouth_opening = None
         self._baseline_mouth_aspect_ratio = None
+        self._exhale_baseline_opening = None
+        self._exhale_baseline_width = None
+        self._exhale_baseline_aspect_ratio = None
         self._inhalation_completed = False
         self.current_state = SmokingState.IDLE
         self.pattern_detected = False

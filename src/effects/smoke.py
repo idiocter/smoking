@@ -90,6 +90,7 @@ class InhaleSmokeParticle:
         self.age = 0.0
         self.shrink_rate = config['shrink_rate']
         self.fade_rate = config['fade_rate']
+        self.color = (205, 205, 205)
 
     def update(self, dt=1.0):
         self.x += self.vx * dt
@@ -128,17 +129,23 @@ class SmokeEffect:
         self.last_inhalation_state = False
         self.exhalation_triggered = False
         self._inhale_frame_count = 0
+        self._exhale_frame_count = 0
 
     def _default_config(self):
         return Config.SMOKE_EFFECT.copy()
 
     def update(self, exhalation_detected, mouth_center, dt=1.0,
                inhalation_detected=False, ember_position=None):
-        if exhalation_detected and not self.last_exhalation_state:
-            self._spawn_particles(mouth_center)
+        if exhalation_detected:
+            spawn_interval = self.config.get('spawn_interval_frames', 2)
+            if not self.last_exhalation_state or self._exhale_frame_count >= spawn_interval:
+                self._spawn_particles(mouth_center)
+                self._exhale_frame_count = 0
+            self._exhale_frame_count += 1
             self.exhalation_triggered = True
-        elif not exhalation_detected:
+        else:
             self.exhalation_triggered = False
+            self._exhale_frame_count = 0
 
         self.last_exhalation_state = exhalation_detected
 
@@ -157,6 +164,10 @@ class SmokeEffect:
             if p.update(dt):
                 alive_particles.append(p)
         self.particles = alive_particles
+
+        max_particles = self.config.get('max_particles', 90)
+        if len(self.particles) > max_particles:
+            self.particles = self.particles[-max_particles:]
 
     def _spawn_particles(self, mouth_center):
         if mouth_center is None:
@@ -187,8 +198,57 @@ class SmokeEffect:
             )
 
     def draw(self, frame):
-        for p in self.particles:
-            p.draw(frame)
+        if not self.particles:
+            return
+
+        height, width = frame.shape[:2]
+        visible = []
+        for particle in self.particles:
+            if not particle.is_alive():
+                continue
+
+            x, y = int(particle.x), int(particle.y)
+            radius = max(1, int(particle.size))
+            if x + radius < 0 or x - radius >= width:
+                continue
+            if y + radius < 0 or y - radius >= height:
+                continue
+
+            visible.append((particle, x, y, radius))
+
+        if not visible:
+            return
+
+        sigma = self.config.get('blur_sigma', 3.5)
+        blur_margin = max(2, int(sigma * 3))
+        left = max(0, min(x - radius for _, x, _, radius in visible) - blur_margin)
+        top = max(0, min(y - radius for _, _, y, radius in visible) - blur_margin)
+        right = min(width, max(x + radius for _, x, _, radius in visible) + blur_margin + 1)
+        bottom = min(height, max(y + radius for _, _, y, radius in visible) + blur_margin + 1)
+
+        smoke_layer = np.zeros((bottom - top, right - left, 3), dtype=np.uint8)
+        alpha_layer = np.zeros((bottom - top, right - left), dtype=np.float32)
+
+        for particle, x, y, radius in visible:
+            center = (x - left, y - top)
+
+            cv2.circle(smoke_layer, center, radius, particle.color, -1)
+            cv2.circle(
+                alpha_layer,
+                center,
+                radius,
+                min(1.0, particle.opacity),
+                -1,
+            )
+
+        smoke_layer = cv2.GaussianBlur(smoke_layer, (0, 0), sigma)
+        alpha_layer = cv2.GaussianBlur(alpha_layer, (0, 0), sigma)
+        alpha = np.clip(alpha_layer, 0.0, 1.0)[..., None]
+        frame_region = frame[top:bottom, left:right]
+        frame_region[:] = (
+            frame_region.astype(np.float32) * (1.0 - alpha) +
+            smoke_layer.astype(np.float32) * alpha
+        ).astype(np.uint8)
 
     def get_particle_count(self):
         return len(self.particles)
@@ -202,3 +262,4 @@ class SmokeEffect:
         self.last_inhalation_state = False
         self.exhalation_triggered = False
         self._inhale_frame_count = 0
+        self._exhale_frame_count = 0

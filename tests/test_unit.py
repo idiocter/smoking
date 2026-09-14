@@ -406,6 +406,30 @@ def test_smoking_detector():
     assert state == SmokingState.INHALING
     assert detector.is_pattern_detected()
 
+    # Moving away, followed by a sustained open mouth, starts an exhale.
+    cig_mouth.state = CigaretteMouthState.MOVING_AWAY
+    for _ in range(detector.AWAY_FRAME_COUNT):
+        state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.EXHALATION_CANDIDATE
+
+    face.measurements = create_mock_face_measurements(
+        opening=10,
+        width=58,
+        height=15,
+        aspect_ratio=2.0,
+    )
+    for _ in range(detector.EXHALATION_FRAME_COUNT):
+        state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.EXHALING
+    assert detector.is_exhalation_detected()
+
+    for _ in range(detector.EXHALATION_DURATION_FRAMES - 1):
+        state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.EXHALING
+    state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.COMPLETED
+    assert not detector.is_exhalation_detected()
+
     # Test reset
     detector.reset()
     assert detector.current_state == SmokingState.IDLE
@@ -439,10 +463,15 @@ def test_smoke_effect():
     assert effect.is_active()
     assert effect.get_particle_count() > 0
 
-    # Test continued exhalation doesn't spawn more
+    # A continued exhale produces a continuous plume.
     initial_count = effect.get_particle_count()
-    effect.update(True, mouth_center)
-    # Should not double the particles (only triggers on rising edge)
+    for _ in range(effect.config['spawn_interval_frames'] + 1):
+        effect.update(True, mouth_center)
+    assert effect.get_particle_count() > initial_count
+
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    effect.draw(frame)
+    assert frame.sum() > 0
 
     # Test no exhalation -> particles eventually expire
     for _ in range(100):
