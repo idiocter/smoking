@@ -39,7 +39,7 @@ src/
 │   ├── face_tracker.py              # MediaPipe FaceLandmarker (Tasks API)
 │   └── hand_tracker.py              # MediaPipe HandLandmarker (Tasks API)
 ├── interaction/
-│   ├── cigarette_tracker.py         # Cigarette pos/rot from thumb-index
+│   ├── cigarette_tracker.py         # Cigarette pos/rot from index-middle gap
 │   ├── cigarette_mouth_detector.py  # Distance + approach/near/away states
 │   └── smoking_detector.py          # 8-state FSM (inhale + exhale)
 ├── effects/

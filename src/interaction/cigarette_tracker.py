@@ -1,6 +1,6 @@
 import numpy as np
-from utils.geometry import distance, midpoint, vector_angle, normalize
-from utils.smoothing import OneEuroFilter, OneEuroFilter2D, AngleOneEuroFilter
+from utils.geometry import distance, midpoint, vector_angle
+from utils.smoothing import OneEuroFilter2D, AngleOneEuroFilter
 from config import Config
 
 
@@ -37,29 +37,40 @@ class CigaretteTracker:
         self._min_finger_distance = Config.CIGARETTE_TRACKER['min_finger_distance']
 
     def _calculate_cigarette_geometry(self, hand_landmarks):
-        thumb_tip = hand_landmarks.get('thumb_tip')
-        thumb_ip = hand_landmarks.get('thumb_ip')
         index_tip = hand_landmarks.get('index_tip')
         index_mcp = hand_landmarks.get('index_mcp')
         middle_tip = hand_landmarks.get('middle_tip')
         middle_mcp = hand_landmarks.get('middle_mcp')
 
-        if not (thumb_tip and index_tip):
+        if not (index_tip and middle_tip):
             return None, None
 
-        position = midpoint(thumb_tip, index_tip)
+        position = midpoint(index_tip, middle_tip)
 
-        dx = index_tip[0] - thumb_tip[0]
-        dy = index_tip[1] - thumb_tip[1]
+        dx = middle_tip[0] - index_tip[0]
+        dy = middle_tip[1] - index_tip[1]
 
-        if distance(thumb_tip, index_tip) < self._min_finger_distance:
-            if index_mcp and index_tip:
-                dx = index_tip[0] - index_mcp[0]
-                dy = index_tip[1] - index_mcp[1]
-            elif middle_tip and middle_mcp:
-                dx = middle_tip[0] - middle_mcp[0]
-                dy = middle_tip[1] - middle_mcp[1]
-            else:
+        if distance(index_tip, middle_tip) < self._min_finger_distance:
+            finger_directions = []
+            if index_mcp:
+                finger_directions.append((
+                    index_tip[0] - index_mcp[0],
+                    index_tip[1] - index_mcp[1],
+                ))
+            if middle_mcp:
+                finger_directions.append((
+                    middle_tip[0] - middle_mcp[0],
+                    middle_tip[1] - middle_mcp[1],
+                ))
+
+            if not finger_directions:
+                return position, self._raw_rotation
+
+            avg_dx = sum(direction[0] for direction in finger_directions) / len(finger_directions)
+            avg_dy = sum(direction[1] for direction in finger_directions) / len(finger_directions)
+            dx, dy = avg_dy, -avg_dx
+
+            if dx == 0 and dy == 0:
                 return position, self._raw_rotation
 
         rotation = vector_angle((dx, dy))

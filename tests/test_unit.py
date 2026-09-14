@@ -176,10 +176,35 @@ def test_cigarette_tracker():
     # Test with valid landmarks
     tracker.update(hand.landmarks)
     assert tracker.is_held
-    assert tracker.position is not None
-    assert tracker.rotation is not None
+    assert tracker.position == (130.0, 100.0)
+    assert abs(tracker.rotation) < 0.001
+
+    # Thumb position must not affect the index-middle grip.
+    tracker.reset()
+    no_thumb = create_mock_hand_landmarks(thumb_tip=None)
+    tracker.update(no_thumb)
+    assert tracker.is_held
+    assert tracker.position == (130.0, 100.0)
+
+    # Nearly overlapping fingertips use the finger axes for a stable angle.
+    tracker.reset()
+    close_fingers = create_mock_hand_landmarks(
+        index_tip=(120, 100),
+        index_mcp=(120, 80),
+        middle_tip=(125, 100),
+        middle_mcp=(125, 80),
+    )
+    tracker.update(close_fingers)
+    assert tracker.position == (122.5, 100.0)
+    assert abs(tracker.rotation) < 0.001
+
+    # Both target fingers are required to place the cigarette.
+    tracker.reset()
+    tracker.update(create_mock_hand_landmarks(middle_tip=None))
+    assert not tracker.is_held
 
     # Test mouth end position
+    tracker.update(hand.landmarks)
     mouth_center = (320, 240)
     end_pos = tracker.get_mouth_end_position(mouth_center)
     assert end_pos is not None

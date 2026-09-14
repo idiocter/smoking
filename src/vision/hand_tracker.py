@@ -109,6 +109,13 @@ class HandTracker:
             return ((thumb_tip[0] + index_tip[0]) / 2, (thumb_tip[1] + index_tip[1]) / 2)
         return None
 
+    def get_index_middle_midpoint(self):
+        index_tip = self.get_landmark('index_tip')
+        middle_tip = self.get_landmark('middle_tip')
+        if index_tip and middle_tip:
+            return ((index_tip[0] + middle_tip[0]) / 2, (index_tip[1] + middle_tip[1]) / 2)
+        return None
+
     def get_fingertip_positions(self):
         tips = ['thumb_tip', 'index_tip', 'middle_tip', 'ring_tip', 'pinky_tip']
         return {name: self.get_landmark(name) for name in tips}

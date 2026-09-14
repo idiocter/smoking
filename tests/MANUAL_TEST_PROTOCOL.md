@@ -17,7 +17,7 @@ This document defines the standardized manual testing protocol for evaluating th
 ### Procedure
 1. Start application in debug mode
 2. Position face and hand in view
-3. Form pinch gesture (thumb + index) to "hold" cigarette
+3. Hold the index and middle fingers apart with the cigarette positioned between their fingertips
 4. Move cigarette toward mouth
 5. Hold near mouth, slightly open mouth (inhale pattern)
 6. Keep cigarette near mouth for ~2 seconds

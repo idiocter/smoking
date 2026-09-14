@@ -73,7 +73,7 @@ Face Tracking (MediaPipe FaceLandmarker)
   ↓
 Hand Tracking (MediaPipe HandLandmarker)
   ↓
-Cigarette Tracking (thumb-index geometry)
+Cigarette Tracking (index-middle finger geometry)
   ↓
 Mouth Interaction (distance + approach states)
   ↓
@@ -111,7 +111,7 @@ IDLE
 
 ### Visual Effects
 
-1. **Virtual Cigarette**: GLB model with a PNG-based 2D fallback, follows the thumb-index midpoint and finger orientation
+1. **Virtual Cigarette**: GLB model with a PNG-based 2D fallback, follows the midpoint and angle between the index and middle fingertips
 2. **Ember Glow**: Emissive 3D material or PNG fallback, fades in/out smoothly when INHALING state is active
 3. **Smoke Particles**: 8-16 particles per exhalation, expand, drift upward, fade out over 30-60 frames
 
