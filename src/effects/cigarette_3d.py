@@ -301,7 +301,7 @@ class Cigarette3DRenderer:
         """Map model coordinates to the exact video-frame pixel space."""
         self.view_matrix = Matrix44.identity()
         self.projection_matrix = Matrix44.orthogonal_projection(
-            0.0, float(width), 0.0, float(height), -100.0, 100.0
+            0.0, float(width), 0.0, float(height), -300.0, 300.0
         )
 
     def update_glow(self, should_glow):
@@ -349,7 +349,7 @@ class Cigarette3DRenderer:
             cigarette_tracker: CigaretteTracker instance with position/rotation
             mouth_center: Current mouth center used to orient the ember away (optional)
         """
-        if not cigarette_tracker.is_held or cigarette_tracker.position is None:
+        if cigarette_tracker.position is None:
             return frame
         
         h, w = frame.shape[:2]

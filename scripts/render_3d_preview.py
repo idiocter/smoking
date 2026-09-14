@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / 'src'))
 
 from effects.cigarette_3d import Cigarette3DRenderer
+from effects.ashtray import AshtrayRenderer
 from config import Config
 
 
@@ -20,10 +21,12 @@ class PreviewTracker:
     is_held = True
     depth_rotation = Config.CIGARETTE_TRACKER['default_depth_rotation']
 
-    def __init__(self, position, rotation, length):
+    def __init__(self, position, rotation, length, depth_rotation=None):
         self.position = position
         self.rotation = rotation
         self.length = length
+        if depth_rotation is not None:
+            self.depth_rotation = depth_rotation
 
     def get_render_rotation(self, mouth_center=None):
         return self.rotation
@@ -34,11 +37,11 @@ def render_preview(output_path, width=960, height=540):
     background = np.repeat(x_gradient[np.newaxis, :], height, axis=0)
     frame = np.dstack((background, background, background))
 
-    tracker = PreviewTracker(
-        position=(width / 2, height / 2),
-        rotation=np.deg2rad(-12),
-        length=min(width * 0.58, 560),
-    )
+    ashtray = AshtrayRenderer()
+    ashtray.update_layout(width, height)
+    rest_pose = ashtray.get_rest_pose()
+    ashtray.draw_back(frame)
+    tracker = PreviewTracker(length=140, **rest_pose)
     renderer = Cigarette3DRenderer(
         PROJECT_ROOT / 'assets' / 'cigarette' / 'cigarette.glb',
         config=Config.CIGARETTE_3D,
@@ -48,6 +51,7 @@ def render_preview(output_path, width=960, height=540):
         renderer.update_glow(True)
         for _ in range(7):
             preview = renderer.render(frame.copy(), tracker)
+        ashtray.draw_front(preview)
     finally:
         renderer.close()
 

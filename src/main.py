@@ -19,6 +19,7 @@ from effects.cigarette import (
 )
 from effects.glow import GlowEffect
 from effects.smoke import SmokeEffect
+from effects.ashtray import AshtrayRenderer
 from config import Config
 
 try:
@@ -66,6 +67,7 @@ class VirtualSmokingApp:
         self.cigarette_renderer_3d = None
         self.glow_effect = None
         self.smoke_effect = None
+        self.ashtray = None
         self.fallback_renderer = None
         self.running = False
         self.prefer_3d = prefer_3d
@@ -136,6 +138,7 @@ class VirtualSmokingApp:
             )
             
             self.smoke_effect = SmokeEffect()
+            self.ashtray = AshtrayRenderer()
 
             self.camera.open()
             return True
@@ -172,6 +175,7 @@ class VirtualSmokingApp:
             original_frame = frame.copy()
 
             h, w = frame.shape[:2]
+            self.ashtray.update_layout(w, h)
             
             # Initialize 3D renderer projection on first frame
             if self.use_3d and self.cigarette_renderer_3d:
@@ -196,7 +200,12 @@ class VirtualSmokingApp:
             try:
                 hand_landmarks = self.hand_tracker.get_all_landmarks()
                 hand_landmarks_3d = self.hand_tracker.get_all_landmarks_3d()
-                self.cigarette_tracker.update(hand_landmarks, hand_landmarks_3d)
+                self.cigarette_tracker.update(
+                    hand_landmarks,
+                    hand_landmarks_3d,
+                    frame_shape=(h, w),
+                    ashtray=self.ashtray,
+                )
             except Exception as e:
                 print(f"Error in cigarette_tracker.update: {e}")
                 import traceback; traceback.print_exc()
@@ -241,7 +250,8 @@ class VirtualSmokingApp:
             )
 
             # Render AR effects
-            if self.cigarette_tracker.is_held and self.cigarette_tracker.position is not None:
+            self.ashtray.draw_back(frame)
+            if self.cigarette_tracker.position is not None:
                 if self.use_3d and self.cigarette_renderer_3d:
                     # Use 3D renderer (handles glow internally)
                     frame = self.cigarette_renderer_3d.render(
@@ -267,6 +277,11 @@ class VirtualSmokingApp:
                         ember_position=ember_position,
                     )
 
+            self.ashtray.draw_front(frame)
+            if (
+                self.cigarette_tracker.is_held and
+                self.cigarette_tracker.position is not None
+            ):
                 frame = apply_finger_occlusion(
                     frame, original_frame, hand_landmarks
                 )
@@ -322,9 +337,10 @@ class VirtualSmokingApp:
                    (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                    (0, 255, 0) if hand_detected else (0, 0, 255), 2)
         status_y += 30
-        cv2.putText(frame, f"Cigarette: {'HELD' if self.cigarette_tracker.is_held else 'NOT HELD'}",
+        cigarette_state = self.cigarette_tracker.state
+        cv2.putText(frame, f"Cigarette: {cigarette_state}",
                    (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                   (0, 255, 0) if self.cigarette_tracker.is_held else (0, 0, 255), 2)
+                   (0, 255, 0) if self.cigarette_tracker.is_held else (180, 180, 180), 2)
         status_y += 30
 
         state_color = (255, 255, 255)

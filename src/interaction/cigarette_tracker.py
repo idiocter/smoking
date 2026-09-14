@@ -5,6 +5,10 @@ from config import Config
 
 
 class CigaretteTracker:
+    RESTING = "RESTING"
+    HELD = "HELD"
+    FALLING = "FALLING"
+
     def __init__(self):
         self.base_length = Config.CIGARETTE_TRACKER['length']
         self.length = self.base_length
@@ -49,6 +53,13 @@ class CigaretteTracker:
         self._max_frames_lost = Config.CIGARETTE_TRACKER['max_frames_lost']
         self._min_finger_distance = Config.CIGARETTE_TRACKER['min_finger_distance']
         self._grip_tip_ratio = Config.CIGARETTE_TRACKER['grip_tip_ratio']
+        self.state = self.RESTING
+        self.velocity = np.zeros(2, dtype=np.float64)
+        self.angular_velocity = 0.0
+        self._physics_initialized = False
+        self._grab_position_offset = np.zeros(2, dtype=np.float64)
+        self._grab_rotation_offset = 0.0
+        self._grab_depth_offset = 0.0
 
     @staticmethod
     def _interpolate(start, end, amount):
@@ -125,15 +136,11 @@ class CigaretteTracker:
         middle_mcp = hand_landmarks.get('middle_mcp')
 
         if not (index_tip and middle_tip):
-            return None, None, None, None
+            return None, None, None, None, None
 
         hand_length = self._calculate_hand_length(hand_landmarks)
         grip_distance = distance(index_tip, middle_tip)
-        max_grip_distance = (
-            hand_length * Config.CIGARETTE_TRACKER['max_grip_distance_ratio']
-        )
-        if grip_distance > max_grip_distance:
-            return None, None, None, None
+        grip_ratio = grip_distance / max(hand_length, 1.0)
 
         position = midpoint(index_tip, middle_tip)
 
@@ -159,6 +166,7 @@ class CigaretteTracker:
                     self._raw_rotation,
                     self._raw_depth_rotation,
                     self.base_length,
+                    grip_ratio,
                 )
 
             avg_dx = sum(direction[0] for direction in finger_directions) / len(finger_directions)
@@ -171,6 +179,7 @@ class CigaretteTracker:
                     self._raw_rotation,
                     self._raw_depth_rotation,
                     self.base_length,
+                    grip_ratio,
                 )
 
         rotation = vector_angle((dx, dy))
@@ -179,12 +188,83 @@ class CigaretteTracker:
         )
         length = self._calculate_length(hand_landmarks)
 
-        return position, rotation, depth_rotation, length
+        return position, rotation, depth_rotation, length, grip_ratio
 
-    def update(self, hand_landmarks, hand_landmarks_3d=None):
+    def _apply_tracked_pose(self, raw_pos, raw_rot, raw_depth, raw_length):
+        self._raw_position = raw_pos
+        self._raw_rotation = raw_rot
+        self._raw_depth_rotation = raw_depth
+        self.position = self.position_smoother(raw_pos)
+        self.rotation = self.rotation_smoother(raw_rot)
+        self.depth_rotation = self.depth_smoother(raw_depth)
+        self.length = self.length_smoother(raw_length)
+        self._last_valid_position = self.position
+        self._last_valid_rotation = self.rotation
+        self.is_held = True
+        self.state = self.HELD
+
+    def _place_in_ashtray(self, ashtray):
+        pose = ashtray.get_rest_pose() if ashtray is not None else None
+        if pose is None:
+            return
+        self.position = pose['position']
+        self.rotation = pose['rotation']
+        self.depth_rotation = pose['depth_rotation']
+        self.velocity[:] = 0.0
+        self.angular_velocity = 0.0
+        self.is_held = False
+        self.state = self.RESTING
+        self._physics_initialized = True
+
+    def _begin_hold(self, raw_pos, raw_rot, raw_depth):
+        self._grab_position_offset = np.subtract(self.position, raw_pos)
+        self._grab_rotation_offset = self.rotation - raw_rot
+        self._grab_depth_offset = self.depth_rotation - raw_depth
+        self.velocity[:] = 0.0
+        self.angular_velocity = 0.0
+        self.is_held = True
+        self.state = self.HELD
+        self._frames_lost = 0
+
+    def _release(self):
+        self.is_held = False
+        self.state = self.FALLING
+
+    def _update_falling(self, frame_shape, ashtray, dt):
+        if self.position is None:
+            self._place_in_ashtray(ashtray)
+            return
+        previous_position = self.position
+        cfg = Config.CIGARETTE_TRACKER
+        self.velocity[1] += cfg['gravity'] * dt
+        self.velocity *= cfg['air_drag'] ** dt
+        self.position = tuple(np.add(self.position, self.velocity * dt))
+        self.rotation += self.angular_velocity * dt
+        self.angular_velocity *= cfg['angular_drag'] ** dt
+
+        if ashtray is not None and ashtray.catches(self.position, previous_position):
+            self._place_in_ashtray(ashtray)
+            return
+
+        if frame_shape is not None:
+            frame_height = frame_shape[0]
+            if self.position[1] > frame_height + cfg['respawn_margin']:
+                self._place_in_ashtray(ashtray)
+
+    def update(self, hand_landmarks, hand_landmarks_3d=None,
+               frame_shape=None, ashtray=None, dt=1.0):
+        physics_enabled = frame_shape is not None and ashtray is not None
+        if physics_enabled and not self._physics_initialized:
+            self._place_in_ashtray(ashtray)
+
         if hand_landmarks is None or not hand_landmarks:
             self._frames_lost += 1
-            if self._frames_lost > self._max_frames_lost:
+            if physics_enabled:
+                if self.is_held and self._frames_lost > self._max_frames_lost:
+                    self._release()
+                if self.state == self.FALLING:
+                    self._update_falling(frame_shape, ashtray, dt)
+            elif self._frames_lost > self._max_frames_lost:
                 self.is_held = False
                 self.position = None
                 self.position_smoother.reset()
@@ -195,27 +275,62 @@ class CigaretteTracker:
 
         self._frames_lost = 0
 
-        raw_pos, raw_rot, raw_depth, raw_length = self._calculate_cigarette_geometry(
-            hand_landmarks, hand_landmarks_3d
+        raw_pos, raw_rot, raw_depth, raw_length, grip_ratio = (
+            self._calculate_cigarette_geometry(hand_landmarks, hand_landmarks_3d)
         )
 
         if raw_pos is None:
-            self.is_held = False
+            if physics_enabled and self.state == self.FALLING:
+                self._update_falling(frame_shape, ashtray, dt)
+            elif not physics_enabled:
+                self.is_held = False
             return
 
-        self._raw_position = raw_pos
-        self._raw_rotation = raw_rot
-        self._raw_depth_rotation = raw_depth
+        if not physics_enabled:
+            if grip_ratio <= Config.CIGARETTE_TRACKER['max_grip_distance_ratio']:
+                self._apply_tracked_pose(raw_pos, raw_rot, raw_depth, raw_length)
+            else:
+                self.is_held = False
+            return
 
-        self.position = self.position_smoother(raw_pos)
-        self.rotation = self.rotation_smoother(raw_rot)
-        self.depth_rotation = self.depth_smoother(raw_depth)
-        self.length = self.length_smoother(raw_length)
+        cfg = Config.CIGARETTE_TRACKER
+        if self.state == self.HELD:
+            if grip_ratio > cfg['release_grip_distance_ratio']:
+                self._release()
+                self._update_falling(frame_shape, ashtray, dt)
+                return
 
-        if self.position is not None:
-            self._last_valid_position = self.position
-            self._last_valid_rotation = self.rotation
-            self.is_held = True
+            target_position = np.add(raw_pos, self._grab_position_offset)
+            displacement = target_position - np.asarray(self.position)
+            self.velocity = (
+                self.velocity * cfg['hold_damping'] +
+                displacement * cfg['hold_spring']
+            )
+            self.position = tuple(np.add(self.position, self.velocity * dt))
+            previous_rotation = self.rotation
+            self.rotation = self.rotation_smoother(
+                raw_rot + self._grab_rotation_offset
+            )
+            self.depth_rotation = self.depth_smoother(
+                raw_depth + self._grab_depth_offset
+            )
+            self.angular_velocity = self.rotation - previous_rotation
+            self.length = self.length_smoother(raw_length)
+            self._raw_position = raw_pos
+            self._raw_rotation = raw_rot
+            self._raw_depth_rotation = raw_depth
+            return
+
+        can_grab = grip_ratio <= cfg['max_grip_distance_ratio']
+        close_to_cigarette = (
+            self.position is not None and
+            distance(raw_pos, self.position) <= cfg['grab_radius']
+        )
+        if can_grab and close_to_cigarette:
+            self._begin_hold(raw_pos, raw_rot, raw_depth)
+            self.length = self.length_smoother(raw_length)
+        elif self.state == self.FALLING:
+            self._update_falling(frame_shape, ashtray, dt)
 
     def get_tip_position(self):
         if self.position is None:
@@ -289,6 +404,8 @@ class CigaretteTracker:
             'depth_rotation': self.depth_rotation,
             'depth_rotation_deg': np.degrees(self.depth_rotation),
             'length': self.length,
+            'state': self.state,
+            'velocity': tuple(self.velocity),
             'frames_lost': self._frames_lost,
         }
 
@@ -304,6 +421,10 @@ class CigaretteTracker:
         self._last_valid_position = None
         self._last_valid_rotation = 0.0
         self._frames_lost = 0
+        self.state = self.RESTING
+        self.velocity[:] = 0.0
+        self.angular_velocity = 0.0
+        self._physics_initialized = False
         pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
         rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
         self.position_smoother = OneEuroFilter2D(

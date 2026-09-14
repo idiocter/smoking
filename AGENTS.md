@@ -43,6 +43,7 @@ src/
 │   ├── cigarette_mouth_detector.py  # Distance + approach/near/away states
 │   └── smoking_detector.py          # 8-state FSM (inhale + exhale)
 ├── effects/
+│   ├── ashtray.py                   # Ashtray drawing and cigarette catch area
 │   ├── cigarette.py                 # 2D Cigarette PNG renderer + fallback
 │   ├── cigarette_3d.py              # 3D GLB renderer (ModernGL + PBR)
 │   ├── glow.py                      # Ember glow (fade in/out) - 2D fallback

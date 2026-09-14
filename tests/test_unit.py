@@ -14,6 +14,7 @@ from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
 from effects.cigarette import apply_finger_occlusion
+from effects.ashtray import AshtrayRenderer
 from effects.smoke import InhaleSmokeParticle, SmokeEffect, SmokeParticle
 
 
@@ -282,6 +283,55 @@ def test_finger_occlusion():
     print("  Finger occlusion tests PASSED")
 
 
+def test_cigarette_pickup_and_gravity():
+    print("Testing cigarette pickup and gravity...")
+    ashtray = AshtrayRenderer()
+    ashtray.update_layout(1280, 720)
+    rest_position = ashtray.get_rest_pose()['position']
+    tracker = CigaretteTracker()
+
+    grip = create_mock_hand_landmarks(
+        index_tip=(rest_position[0] - 10, rest_position[1]),
+        index_mcp=(rest_position[0] - 10, rest_position[1] + 45),
+        middle_tip=(rest_position[0] + 10, rest_position[1]),
+        middle_mcp=(rest_position[0] + 10, rest_position[1] + 45),
+    )
+    grip['wrist'] = (rest_position[0], rest_position[1] + 150)
+
+    tracker.update(grip, frame_shape=(720, 1280), ashtray=ashtray)
+    assert tracker.state == CigaretteTracker.HELD
+    assert tracker.is_held
+
+    moved_grip = {
+        name: (point[0], point[1] + 80) if point is not None else None
+        for name, point in grip.items()
+    }
+    old_y = tracker.position[1]
+    tracker.update(moved_grip, frame_shape=(720, 1280), ashtray=ashtray)
+    assert old_y < tracker.position[1] < moved_grip['index_tip'][1] + 10
+
+    spread_grip = dict(moved_grip)
+    spread_grip['middle_tip'] = (
+        moved_grip['middle_tip'][0] + 110,
+        moved_grip['middle_tip'][1],
+    )
+    tracker.update(spread_grip, frame_shape=(720, 1280), ashtray=ashtray)
+    assert tracker.state == CigaretteTracker.FALLING
+    assert not tracker.is_held
+
+    falling_y = tracker.position[1]
+    tracker.update(None, frame_shape=(720, 1280), ashtray=ashtray)
+    assert tracker.position[1] > falling_y
+
+    tracker.position = (rest_position[0], rest_position[1] - 20)
+    tracker.velocity[:] = (0, 25)
+    tracker.state = CigaretteTracker.FALLING
+    tracker.update(None, frame_shape=(720, 1280), ashtray=ashtray)
+    assert tracker.state == CigaretteTracker.RESTING
+    assert tracker.position == rest_position
+    print("  Cigarette pickup and gravity tests PASSED")
+
+
 # ==================== CIGARETTE-MOUTH DETECTOR TESTS ====================
 
 def test_cigarette_mouth_detector():
@@ -463,6 +513,7 @@ if __name__ == '__main__':
     test_smoothing()
     test_cigarette_tracker()
     test_finger_occlusion()
+    test_cigarette_pickup_and_gravity()
     test_cigarette_mouth_detector()
     test_smoking_detector()
     test_smoke_effect()

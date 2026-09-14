@@ -17,13 +17,14 @@ This document defines the standardized manual testing protocol for evaluating th
 ### Procedure
 1. Start application in debug mode
 2. Position face and hand in view
-3. Hold the index and middle fingers apart with the cigarette positioned between their fingertips
-4. Move cigarette toward mouth
-5. Hold near mouth, slightly open mouth (inhale pattern)
-6. Keep cigarette near mouth for ~2 seconds
-7. Move cigarette away from mouth
-8. Open mouth wider (exhale pattern)
-9. Observe smoke particles
+3. Move the index-middle grip to the cigarette in the top-right ashtray and close the fingers to pick it up
+4. Move the held cigarette toward the mouth; open the fingers to verify that it releases and falls under gravity
+5. Pick it up again and move it toward the mouth
+6. Hold near mouth, slightly open mouth (inhale pattern)
+7. Keep cigarette near mouth for ~2 seconds
+8. Move cigarette away from mouth
+9. Open mouth wider (exhale pattern)
+10. Observe smoke particles
 10. Return to idle
 11. Repeat 5x
 
