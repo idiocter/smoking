@@ -119,7 +119,7 @@ IDLE
 |-----------|---------|-------|
 | `model_scale` | `1.0` | Was 0.005 (microscopic) |
 | `model_offset_y` | `-0.1` | Vertical offset |
-| `model_rotation_offset_y` | `np.pi` | 180° to face camera |
+| `model_rotation_offset_y` | `np.deg2rad(70)` | Strong forward tilt with a visible side profile |
 | `model_rotation_offset_x` | `0.0` | No X tilt |
 | `glow_fade_in/out` | `0.15`/`0.08` | Matches GlowEffect |
 

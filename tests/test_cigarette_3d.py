@@ -65,8 +65,26 @@ def test_rotation_uses_image_coordinate_direction():
     assert endpoint[1] > tracker.position[1]
 
 
+def test_camera_facing_tilt_adds_depth_and_foreshortening():
+    renderer = renderer_without_context()
+    renderer.rotation_offset[1] = np.deg2rad(70.0)
+    tracker = MockTracker()
+    matrix = renderer._model_matrix(720, tracker)
+    half_extent = renderer._model_extent[0] / 2
+    left = matrix44.apply_to_vector(matrix, [-half_extent, 0.0, 0.0, 1.0])
+    right = matrix44.apply_to_vector(matrix, [half_extent, 0.0, 0.0, 1.0])
+
+    projected_length = abs(right[0] - left[0])
+    depth_length = abs(right[2] - left[2])
+
+    assert projected_length < tracker.length * 0.4
+    assert projected_length > tracker.length * 0.25
+    assert depth_length > tracker.length * 0.9
+
+
 if __name__ == '__main__':
     test_material_texture_slots()
     test_horizontal_transform_matches_tracker_length()
     test_rotation_uses_image_coordinate_direction()
+    test_camera_facing_tilt_adds_depth_and_foreshortening()
     print('3D cigarette tests passed')

@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / 'src'))
 
 from effects.cigarette_3d import Cigarette3DRenderer
+from config import Config
 
 
 class PreviewTracker:
@@ -22,6 +23,9 @@ class PreviewTracker:
         self.position = position
         self.rotation = rotation
         self.length = length
+
+    def get_render_rotation(self, mouth_center=None):
+        return self.rotation
 
 
 def render_preview(output_path, width=960, height=540):
@@ -34,7 +38,10 @@ def render_preview(output_path, width=960, height=540):
         rotation=np.deg2rad(-12),
         length=min(width * 0.58, 560),
     )
-    renderer = Cigarette3DRenderer(PROJECT_ROOT / 'assets' / 'cigarette' / 'cigarette.glb')
+    renderer = Cigarette3DRenderer(
+        PROJECT_ROOT / 'assets' / 'cigarette' / 'cigarette.glb',
+        config=Config.CIGARETTE_3D,
+    )
     try:
         renderer.set_view_projection(width, height)
         renderer.update_glow(True)

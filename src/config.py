@@ -80,7 +80,9 @@ class Config:
         'model_offset_y': 0.0,
         'model_offset_z': 0.0,
         'model_rotation_offset_x': 0.0,
-        'model_rotation_offset_y': 0.0,
+        # Tilt the cigarette's long axis toward the camera. A full 90 degrees
+        # would make it appear as only an end cap, so retain a small side profile.
+        'model_rotation_offset_y': np.deg2rad(70.0),
         'model_rotation_offset_z': 0.0,
     }
 
