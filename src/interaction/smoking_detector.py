@@ -1,4 +1,3 @@
-import numpy as np
 from utils.smoothing import Smoother
 from config import Config
 
@@ -52,6 +51,8 @@ class SmokingDetector:
         self._prev_mouth_aspect_ratio = None
         self._prev_mouth_width = None
         self._prev_mouth_height = None
+        self._baseline_mouth_opening = None
+        self._baseline_mouth_aspect_ratio = None
         self._inhalation_completed = False
 
         self.current_state = SmokingState.IDLE
@@ -78,152 +79,141 @@ class SmokingDetector:
 
         return self.current_state
 
-    def _update_state(self, cig_state, distance, mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height):
-        if self._state == SmokingState.IDLE:
-            self._frames_in_state = 0
-            self._approach_count = 0
-            self._near_mouth_count = 0
-            self._inhalation_pattern_count = 0
-            self._away_count = 0
-            self._exhalation_pattern_count = 0
-            self._exhalation_stability_count = 0
-            self._prev_mouth_opening = mouth_opening
-            self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-            self._prev_mouth_width = mouth_width
-            self._prev_mouth_height = mouth_height
-            self._inhalation_completed = False
-            self.pattern_detected = False
-            self.exhalation_detected = False
+    def _transition(self, state):
+        self._state = state
+        self.current_state = state
+        self._frames_in_state = 0
 
-            if cig_state == "APPROACHING":
+    def _enter_idle(self):
+        self._transition(SmokingState.IDLE)
+        self._approach_count = 0
+        self._near_mouth_count = 0
+        self._inhalation_pattern_count = 0
+        self._away_count = 0
+        self._exhalation_pattern_count = 0
+        self._exhalation_stability_count = 0
+        self._baseline_mouth_opening = None
+        self._baseline_mouth_aspect_ratio = None
+        self._inhalation_completed = False
+        self.pattern_detected = False
+        self.exhalation_detected = False
+
+    def _enter_near_mouth(self, mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height):
+        self._transition(SmokingState.NEAR_MOUTH)
+        self._near_mouth_count = 0
+        self._inhalation_pattern_count = 0
+        self._baseline_mouth_opening = mouth_opening
+        self._baseline_mouth_aspect_ratio = mouth_aspect_ratio
+        self._prev_mouth_opening = mouth_opening
+        self._prev_mouth_aspect_ratio = mouth_aspect_ratio
+        self._prev_mouth_width = mouth_width
+        self._prev_mouth_height = mouth_height
+
+    def _inhalation_pattern_matches(self, mouth_opening, mouth_aspect_ratio):
+        if self._baseline_mouth_opening is None or self._baseline_mouth_aspect_ratio is None:
+            return False
+        opening_delta = abs(mouth_opening - self._baseline_mouth_opening)
+        aspect_ratio_delta = abs(mouth_aspect_ratio - self._baseline_mouth_aspect_ratio)
+        return (
+            opening_delta > self.MOUTH_OPENING_CHANGE_THRESHOLD or
+            aspect_ratio_delta > self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD
+        )
+
+    def _enter_exhalation_candidate(self, mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height):
+        self._transition(SmokingState.EXHALATION_CANDIDATE)
+        self._away_count = 0
+        self._exhalation_pattern_count = 0
+        self._exhalation_stability_count = 0
+        self._prev_mouth_opening = mouth_opening
+        self._prev_mouth_aspect_ratio = mouth_aspect_ratio
+        self._prev_mouth_width = mouth_width
+        self._prev_mouth_height = mouth_height
+
+    def _update_state(self, cig_state, distance, mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height):
+        self._frames_in_state += 1
+
+        if self._state == SmokingState.IDLE:
+            if cig_state == "NEAR":
+                self._near_mouth_count += 1
+                self._approach_count = 0
+                if self._near_mouth_count >= self.NEAR_MOUTH_FRAME_COUNT:
+                    self._enter_near_mouth(
+                        mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height
+                    )
+            elif cig_state == "APPROACHING":
                 self._approach_count += 1
+                self._near_mouth_count = 0
                 if self._approach_count >= self.APPROACHING_FRAME_COUNT:
-                    self._state = SmokingState.APPROACHING
-                    self._frames_in_state = 0
+                    self._transition(SmokingState.APPROACHING)
                     self._approach_count = 0
+            else:
+                self._approach_count = 0
+                self._near_mouth_count = 0
 
         elif self._state == SmokingState.APPROACHING:
-            self._frames_in_state += 1
-
             if cig_state == "NEAR":
                 self._near_mouth_count += 1
                 if self._near_mouth_count >= self.NEAR_MOUTH_FRAME_COUNT:
-                    self._state = SmokingState.NEAR_MOUTH
-                    self._frames_in_state = 0
-                    self._near_mouth_count = 0
-                    self._prev_mouth_opening = mouth_opening
-                    self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-                    self._prev_mouth_width = mouth_width
-                    self._prev_mouth_height = mouth_height
-            elif cig_state == "FAR" or cig_state == "MOVING_AWAY":
-                self._state = SmokingState.IDLE
+                    self._enter_near_mouth(
+                        mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height
+                    )
+            elif cig_state in ("FAR", "MOVING_AWAY"):
+                self._enter_idle()
             else:
                 self._near_mouth_count = 0
 
         elif self._state == SmokingState.NEAR_MOUTH:
-            self._frames_in_state += 1
-
             if cig_state != "NEAR":
-                self._state = SmokingState.IDLE
-                return
-
-            opening_delta = abs(mouth_opening - self._prev_mouth_opening) if self._prev_mouth_opening is not None else 0
-            ar_delta = abs(mouth_aspect_ratio - self._prev_mouth_aspect_ratio) if self._prev_mouth_aspect_ratio is not None else 0
-
-            pattern_change = (
-                opening_delta > self.MOUTH_OPENING_CHANGE_THRESHOLD or
-                ar_delta > self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD
-            )
-
-            if pattern_change:
+                self._enter_idle()
+            elif self._inhalation_pattern_matches(mouth_opening, mouth_aspect_ratio):
                 self._inhalation_pattern_count += 1
                 if self._inhalation_pattern_count >= self.INHALATION_FRAME_COUNT:
-                    self._state = SmokingState.INHALATION_CANDIDATE
-                    self._frames_in_state = 0
+                    self._transition(SmokingState.INHALATION_CANDIDATE)
                     self._inhalation_pattern_count = 0
             else:
                 self._inhalation_pattern_count = max(0, self._inhalation_pattern_count - 1)
-
-            self._prev_mouth_opening = mouth_opening
-            self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-            self._prev_mouth_width = mouth_width
-            self._prev_mouth_height = mouth_height
+                # Slowly adapt the baseline to normal motion while the cigarette rests at the lips.
+                self._baseline_mouth_opening = 0.95 * self._baseline_mouth_opening + 0.05 * mouth_opening
+                self._baseline_mouth_aspect_ratio = (
+                    0.95 * self._baseline_mouth_aspect_ratio + 0.05 * mouth_aspect_ratio
+                )
 
         elif self._state == SmokingState.INHALATION_CANDIDATE:
-            self._frames_in_state += 1
-
             if cig_state != "NEAR":
-                self._state = SmokingState.IDLE
-                return
-
-            opening_delta = abs(mouth_opening - self._prev_mouth_opening) if self._prev_mouth_opening is not None else 0
-            ar_delta = abs(mouth_aspect_ratio - self._prev_mouth_aspect_ratio) if self._prev_mouth_aspect_ratio is not None else 0
-
-            pattern_continues = (
-                opening_delta > self.MOUTH_OPENING_CHANGE_THRESHOLD or
-                ar_delta > self.MOUTH_ASPECT_RATIO_CHANGE_THRESHOLD
-            )
-
-            if pattern_continues:
+                self._enter_idle()
+            elif self._inhalation_pattern_matches(mouth_opening, mouth_aspect_ratio):
                 self._inhalation_pattern_count += 1
                 if self._inhalation_pattern_count >= self.INHALATION_FRAME_COUNT:
-                    self._state = SmokingState.INHALING
-                    self._frames_in_state = 0
+                    self._transition(SmokingState.INHALING)
                     self._inhalation_completed = True
                     self.pattern_detected = True
                     self._inhalation_pattern_count = 0
             else:
-                self._state = SmokingState.NEAR_MOUTH
-                self._frames_in_state = 0
-                self._inhalation_pattern_count = 0
-
-            self._prev_mouth_opening = mouth_opening
-            self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-            self._prev_mouth_width = mouth_width
-            self._prev_mouth_height = mouth_height
+                self._enter_near_mouth(
+                    mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height
+                )
 
         elif self._state == SmokingState.INHALING:
-            self._frames_in_state += 1
-
             if cig_state == "MOVING_AWAY":
                 self._away_count += 1
                 if self._away_count >= self.AWAY_FRAME_COUNT:
-                    self._state = SmokingState.EXHALATION_CANDIDATE
-                    self._frames_in_state = 0
-                    self._away_count = 0
-                    self._exhalation_pattern_count = 0
-                    self._exhalation_stability_count = 0
-                    self._prev_mouth_opening = mouth_opening
-                    self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-                    self._prev_mouth_width = mouth_width
-                    self._prev_mouth_height = mouth_height
+                    self._enter_exhalation_candidate(
+                        mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height
+                    )
             elif cig_state == "FAR":
-                self._state = SmokingState.EXHALATION_CANDIDATE
-                self._frames_in_state = 0
-                self._away_count = 0
-                self._exhalation_pattern_count = 0
-                self._exhalation_stability_count = 0
-                self._prev_mouth_opening = mouth_opening
-                self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-                self._prev_mouth_width = mouth_width
-                self._prev_mouth_height = mouth_height
+                self._enter_exhalation_candidate(
+                    mouth_opening, mouth_aspect_ratio, mouth_width, mouth_height
+                )
             else:
                 self._away_count = 0
 
         elif self._state == SmokingState.EXHALATION_CANDIDATE:
-            self._frames_in_state += 1
-
-            if distance is None or distance > self.AWAY_FROM_MOUTH_THRESHOLD * 1.5:
-                self._state = SmokingState.COMPLETED
-                return
-
-            if not face_tracker_is_valid(mouth_opening, mouth_width, mouth_height):
-                self._exhalation_pattern_count = 0
-                self._exhalation_stability_count = 0
-            else:
-                opening_delta = abs(mouth_opening - self._prev_mouth_opening) if self._prev_mouth_opening is not None else 0
-                width_delta = abs(mouth_width - self._prev_mouth_width) if self._prev_mouth_width is not None else 0
-
+            if cig_state == "NEAR":
+                self._transition(SmokingState.INHALING)
+                self._away_count = 0
+            elif face_tracker_is_valid(mouth_opening, mouth_width, mouth_height):
+                opening_delta = abs(mouth_opening - self._prev_mouth_opening)
+                width_delta = abs(mouth_width - self._prev_mouth_width)
                 exhalation_pattern = (
                     mouth_opening > self.EXHALATION_MOUTH_OPENING_THRESHOLD and
                     (opening_delta > self.EXHALATION_MOUTH_OPENING_THRESHOLD * 0.5 or
@@ -234,8 +224,7 @@ class SmokingDetector:
                     self._exhalation_pattern_count += 1
                     self._exhalation_stability_count = 0
                     if self._exhalation_pattern_count >= self.EXHALATION_FRAME_COUNT:
-                        self._state = SmokingState.EXHALING
-                        self._frames_in_state = 0
+                        self._transition(SmokingState.EXHALING)
                         self.exhalation_detected = True
                         self._exhalation_pattern_count = 0
                 else:
@@ -243,26 +232,25 @@ class SmokingDetector:
                     if self._exhalation_stability_count >= self.EXHALATION_STABILITY_FRAMES:
                         self._exhalation_pattern_count = max(0, self._exhalation_pattern_count - 1)
 
-            self._prev_mouth_opening = mouth_opening
-            self._prev_mouth_aspect_ratio = mouth_aspect_ratio
-            self._prev_mouth_width = mouth_width
-            self._prev_mouth_height = mouth_height
+                self._prev_mouth_opening = mouth_opening
+                self._prev_mouth_aspect_ratio = mouth_aspect_ratio
+                self._prev_mouth_width = mouth_width
+                self._prev_mouth_height = mouth_height
+
+            if (
+                self._state == SmokingState.EXHALATION_CANDIDATE and
+                self._frames_in_state >= self.EXHALATION_WINDOW * 3
+            ):
+                self._transition(SmokingState.COMPLETED)
 
         elif self._state == SmokingState.EXHALING:
-            self._frames_in_state += 1
-
-            if distance is not None and distance < self.NEAR_MOUTH_THRESHOLD:
-                self._state = SmokingState.NEAR_MOUTH
-                self._frames_in_state = 0
+            if self._frames_in_state >= self.EXHALATION_WINDOW:
                 self.exhalation_detected = False
-            elif distance is not None and distance > self.AWAY_FROM_MOUTH_THRESHOLD * 2:
-                self._state = SmokingState.COMPLETED
-                self._frames_in_state = 0
+                self._transition(SmokingState.COMPLETED)
 
         elif self._state == SmokingState.COMPLETED:
-            self._frames_in_state += 1
             if self._frames_in_state >= 2:
-                self._state = SmokingState.IDLE
+                self._enter_idle()
 
         self.current_state = self._state
 
@@ -318,6 +306,8 @@ class SmokingDetector:
         self._prev_mouth_aspect_ratio = None
         self._prev_mouth_width = None
         self._prev_mouth_height = None
+        self._baseline_mouth_opening = None
+        self._baseline_mouth_aspect_ratio = None
         self._inhalation_completed = False
         self.current_state = SmokingState.IDLE
         self.pattern_detected = False

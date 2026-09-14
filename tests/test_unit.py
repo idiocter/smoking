@@ -13,7 +13,7 @@ from utils.smoothing import Smoother, OneEuroFilter, OneEuroFilter2D, AngleOneEu
 from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
-from effects.smoke import SmokeEffect, SmokeParticle
+from effects.smoke import InhaleSmokeParticle, SmokeEffect, SmokeParticle
 
 
 def create_mock_hand_landmarks(thumb_tip=(100, 100), index_tip=(120, 100),
@@ -77,6 +77,18 @@ class MockCigaretteTracker:
         dx = math.cos(self.rotation) * (self.length / 2)
         dy = math.sin(self.rotation) * (self.length / 2)
         return (self.position[0] + dx, self.position[1] + dy)
+
+
+class MockCigaretteMouthDetector:
+    def __init__(self, state=CigaretteMouthState.FAR, distance=200):
+        self.state = state
+        self.distance = distance
+
+    def get_state(self):
+        return self.state
+
+    def get_distance(self):
+        return self.distance
 
 
 # ==================== GEOMETRY TESTS ====================
@@ -208,6 +220,9 @@ def test_cigarette_tracker():
     mouth_center = (320, 240)
     end_pos = tracker.get_mouth_end_position(mouth_center)
     assert end_pos is not None
+    ember_pos = tracker.get_ember_position(mouth_center)
+    assert ember_pos == tracker.get_base_position()
+    assert abs(tracker.get_render_rotation(mouth_center) - np.pi) < 0.001
 
     # Test with no hand
     tracker.update(None)
@@ -270,15 +285,28 @@ def test_smoking_detector():
 
     detector = SmokingDetector()
     cig = MockCigaretteTracker(held=True)
-    cig_mouth = CigaretteMouthDetector()
+    cig_mouth = MockCigaretteMouthDetector(
+        state=CigaretteMouthState.NEAR,
+        distance=20,
+    )
     face = MockFaceTracker()
 
-    # Test initial state
-    state = detector.update(cig, cig_mouth, face)
-    assert state == SmokingState.IDLE
+    # Direct placement at the lips must work even without an APPROACHING phase.
+    for _ in range(detector.NEAR_MOUTH_FRAME_COUNT):
+        state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.NEAR_MOUTH
 
-    # Test valid inhalation sequence (simplified)
-    # This is complex to test fully without real data
+    # A sustained mouth change is measured against the near-mouth baseline.
+    face.measurements = create_mock_face_measurements(
+        opening=16,
+        width=50,
+        height=15,
+        aspect_ratio=2.5,
+    )
+    for _ in range(detector.INHALATION_FRAME_COUNT * 2):
+        state = detector.update(cig, cig_mouth, face)
+    assert state == SmokingState.INHALING
+    assert detector.is_pattern_detected()
 
     # Test reset
     detector.reset()
@@ -322,6 +350,30 @@ def test_smoke_effect():
     for _ in range(100):
         effect.update(False, mouth_center)
     assert not effect.is_active() or effect.get_particle_count() < initial_count
+
+    # Inhaling creates small wisps that move from the ember toward the mouth.
+    effect.reset()
+    ember_position = (200, 240)
+    effect.update(
+        False,
+        mouth_center,
+        inhalation_detected=True,
+        ember_position=ember_position,
+    )
+    inhale_particles = [
+        particle for particle in effect.particles
+        if isinstance(particle, InhaleSmokeParticle)
+    ]
+    assert inhale_particles
+    particle = inhale_particles[0]
+    previous_distance = distance((particle.x, particle.y), mouth_center)
+    effect.update(
+        False,
+        mouth_center,
+        inhalation_detected=True,
+        ember_position=ember_position,
+    )
+    assert distance((particle.x, particle.y), mouth_center) < previous_distance
 
     # Test reset
     effect.update(True, mouth_center)

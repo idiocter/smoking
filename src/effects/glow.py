@@ -87,7 +87,7 @@ class GlowEffect:
             blended = roi * (1 - alpha) + overlay_roi[:, :, :3] * alpha
             frame[y1:y2, x1:x2] = blended.astype(np.uint8)
 
-    def draw(self, frame, position, rotation, cigarette_length):
+    def draw(self, frame, position, rotation, cigarette_length, ember_position=None):
         if self.glow_img is None or self.current_intensity <= 0:
             return
 
@@ -97,7 +97,11 @@ class GlowEffect:
         # The glow asset center is at the tip, so we offset by half cigarette length
         cos_r = np.cos(rotation)
         sin_r = np.sin(rotation)
-        glow_center_x = int(position[0] + cos_r * (cigarette_length / 2))
-        glow_center_y = int(position[1] + sin_r * (cigarette_length / 2))
+        if ember_position is None:
+            glow_center_x = int(position[0] + cos_r * (cigarette_length / 2))
+            glow_center_y = int(position[1] + sin_r * (cigarette_length / 2))
+        else:
+            glow_center_x = int(ember_position[0])
+            glow_center_y = int(ember_position[1])
 
         self._alpha_blend(frame, rotated, (glow_center_x, glow_center_y))

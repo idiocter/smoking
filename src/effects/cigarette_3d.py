@@ -317,7 +317,7 @@ class Cigarette3DRenderer:
             self.emissive_intensity = max(self.target_emissive_intensity, 
                                          self.emissive_intensity - self.fade_out_speed)
 
-    def _model_matrix(self, frame_height, cigarette_tracker):
+    def _model_matrix(self, frame_height, cigarette_tracker, rotation=None):
         """Build a pixel-aligned transform from the tracked cigarette pose."""
         pixel_scale = cigarette_tracker.length / self._model_extent[0]
         pixel_scale *= self.model_scale
@@ -329,22 +329,22 @@ class Cigarette3DRenderer:
         ], dtype=np.float32)
 
         model_matrix = Matrix44.from_translation(world_pos)
-        model_matrix *= Matrix44.from_z_rotation(
-            cigarette_tracker.rotation + self.rotation_offset[2]
-        )
+        if rotation is None:
+            rotation = cigarette_tracker.rotation
+        model_matrix *= Matrix44.from_z_rotation(rotation + self.rotation_offset[2])
         model_matrix *= Matrix44.from_x_rotation(self.rotation_offset[0])
         model_matrix *= Matrix44.from_y_rotation(self.rotation_offset[1])
         model_matrix *= Matrix44.from_scale([pixel_scale, pixel_scale, pixel_scale])
         return model_matrix
 
-    def render(self, frame, cigarette_tracker, face_tracker=None):
+    def render(self, frame, cigarette_tracker, mouth_center=None):
         """
         Render 3D cigarette onto the frame.
         
         Args:
             frame: OpenCV frame (BGR)
             cigarette_tracker: CigaretteTracker instance with position/rotation
-            face_tracker: FaceTracker for mouth position (optional)
+            mouth_center: Current mouth center used to orient the ember away (optional)
         """
         if not cigarette_tracker.is_held or cigarette_tracker.position is None:
             return frame
@@ -357,7 +357,8 @@ class Cigarette3DRenderer:
         
         if self._model_extent[0] <= 0:
             return frame
-        model_matrix = self._model_matrix(h, cigarette_tracker)
+        rotation = cigarette_tracker.get_render_rotation(mouth_center)
+        model_matrix = self._model_matrix(h, cigarette_tracker, rotation=rotation)
         
         # Render to offscreen framebuffer
         self.fbo.use()

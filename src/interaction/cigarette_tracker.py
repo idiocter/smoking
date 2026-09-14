@@ -135,6 +135,31 @@ class CigaretteTracker:
 
         return tip if tip_dist < base_dist else base
 
+    def get_ember_position(self, mouth_center=None):
+        """Return the cigarette end farthest from the mouth."""
+        if self.position is None:
+            return None
+
+        tip = self.get_tip_position()
+        base = self.get_base_position()
+        if mouth_center is None:
+            return tip
+
+        tip_dist = distance(tip, mouth_center)
+        base_dist = distance(base, mouth_center)
+        return tip if tip_dist >= base_dist else base
+
+    def get_render_rotation(self, mouth_center=None):
+        """Orient the positive model axis toward the ember, away from the mouth."""
+        if self.position is None or mouth_center is None:
+            return self.rotation
+
+        tip = self.get_tip_position()
+        base = self.get_base_position()
+        if distance(tip, mouth_center) < distance(base, mouth_center):
+            return self.rotation + np.pi
+        return self.rotation
+
     def get_orientation_vector(self):
         if self.position is None:
             return None

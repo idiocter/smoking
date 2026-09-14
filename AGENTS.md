@@ -99,9 +99,9 @@ IDLE
                 → IDLE
 ```
 
-**Glow:** Active only in `INHALING` state (Phase 8/14 - built into 3D renderer)
+**Glow:** Active only in `INHALING` state, on the end facing away from the mouth
 
-**Smoke:** Spawns once on rising edge of `EXHALING` state (Phase 10)
+**Smoke:** Inward wisps animate from ember to mouth while inhaling; exhale smoke spawns on the rising edge of `EXHALING`
 
 ---
 

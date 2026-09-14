@@ -68,17 +68,72 @@ class SmokeParticle:
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
 
+class InhaleSmokeParticle:
+    """A small wisp that travels from the ember into the mouth."""
+
+    def __init__(self, start, target, config):
+        jitter = config['spawn_jitter']
+        self.x = start[0] + random.uniform(-jitter, jitter)
+        self.y = start[1] + random.uniform(-jitter, jitter)
+        travel_frames = random.uniform(
+            config['travel_frames_min'], config['travel_frames_max']
+        )
+        self.vx = (target[0] - self.x) / travel_frames
+        self.vy = (target[1] - self.y) / travel_frames
+        self.size = random.uniform(
+            config['initial_size_min'], config['initial_size_max']
+        )
+        self.opacity = random.uniform(
+            config['initial_opacity_min'], config['initial_opacity_max']
+        )
+        self.lifetime = travel_frames
+        self.age = 0.0
+        self.shrink_rate = config['shrink_rate']
+        self.fade_rate = config['fade_rate']
+
+    def update(self, dt=1.0):
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        self.size = max(0.5, self.size * (1.0 - self.shrink_rate * dt))
+        self.opacity = max(0.0, self.opacity * (1.0 - self.fade_rate * dt))
+        self.age += dt
+        return self.is_alive()
+
+    def is_alive(self):
+        return self.age < self.lifetime and self.opacity > 0.01
+
+    def draw(self, frame):
+        if not self.is_alive():
+            return
+
+        center = (int(self.x), int(self.y))
+        radius = max(1, int(self.size))
+        h, w = frame.shape[:2]
+        if center[0] + radius < 0 or center[0] - radius >= w:
+            return
+        if center[1] + radius < 0 or center[1] - radius >= h:
+            return
+
+        overlay = frame.copy()
+        cv2.circle(overlay, center, radius, (205, 205, 205), -1)
+        cv2.addWeighted(overlay, min(1.0, self.opacity), frame, 1 - min(1.0, self.opacity), 0, frame)
+
+
 class SmokeEffect:
-    def __init__(self, config=None):
+    def __init__(self, config=None, inhale_config=None):
         self.config = config or self._default_config()
+        self.inhale_config = inhale_config or Config.INHALE_SMOKE_EFFECT.copy()
         self.particles = []
         self.last_exhalation_state = False
+        self.last_inhalation_state = False
         self.exhalation_triggered = False
+        self._inhale_frame_count = 0
 
     def _default_config(self):
         return Config.SMOKE_EFFECT.copy()
 
-    def update(self, exhalation_detected, mouth_center, dt=1.0):
+    def update(self, exhalation_detected, mouth_center, dt=1.0,
+               inhalation_detected=False, ember_position=None):
         if exhalation_detected and not self.last_exhalation_state:
             self._spawn_particles(mouth_center)
             self.exhalation_triggered = True
@@ -86,6 +141,16 @@ class SmokeEffect:
             self.exhalation_triggered = False
 
         self.last_exhalation_state = exhalation_detected
+
+        if inhalation_detected and mouth_center is not None and ember_position is not None:
+            spawn_interval = self.inhale_config['spawn_interval_frames']
+            if not self.last_inhalation_state or self._inhale_frame_count >= spawn_interval:
+                self._spawn_inhale_particles(ember_position, mouth_center)
+                self._inhale_frame_count = 0
+            self._inhale_frame_count += 1
+        else:
+            self._inhale_frame_count = 0
+        self.last_inhalation_state = inhalation_detected
 
         alive_particles = []
         for p in self.particles:
@@ -111,6 +176,16 @@ class SmokeEffect:
             )
             self.particles.append(p)
 
+    def _spawn_inhale_particles(self, ember_position, mouth_center):
+        count = random.randint(
+            self.inhale_config['particle_count_min'],
+            self.inhale_config['particle_count_max'],
+        )
+        for _ in range(count):
+            self.particles.append(
+                InhaleSmokeParticle(ember_position, mouth_center, self.inhale_config)
+            )
+
     def draw(self, frame):
         for p in self.particles:
             p.draw(frame)
@@ -124,4 +199,6 @@ class SmokeEffect:
     def reset(self):
         self.particles = []
         self.last_exhalation_state = False
+        self.last_inhalation_state = False
         self.exhalation_triggered = False
+        self._inhale_frame_count = 0

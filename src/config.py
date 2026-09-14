@@ -113,6 +113,21 @@ class Config:
         'origin_offset_y': -8,
     }
 
+    INHALE_SMOKE_EFFECT = {
+        'particle_count_min': 1,
+        'particle_count_max': 2,
+        'spawn_interval_frames': 3,
+        'travel_frames_min': 12,
+        'travel_frames_max': 20,
+        'initial_size_min': 3,
+        'initial_size_max': 6,
+        'initial_opacity_min': 0.18,
+        'initial_opacity_max': 0.35,
+        'spawn_jitter': 3,
+        'shrink_rate': 0.05,
+        'fade_rate': 0.07,
+    }
+
     DEBUG = {
         'show_fps': True,
         'font_scale': 0.7,
