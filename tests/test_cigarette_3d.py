@@ -19,6 +19,7 @@ MODEL_PATH = Path(__file__).resolve().parents[1] / 'assets' / 'cigarette' / 'cig
 class MockTracker:
     position = (320.0, 240.0)
     rotation = 0.0
+    depth_rotation = 0.0
     length = 140.0
 
 
@@ -65,10 +66,10 @@ def test_rotation_uses_image_coordinate_direction():
     assert endpoint[1] > tracker.position[1]
 
 
-def test_camera_facing_tilt_adds_depth_and_foreshortening():
+def test_hand_depth_tilt_adds_depth_and_foreshortening():
     renderer = renderer_without_context()
-    renderer.rotation_offset[1] = np.deg2rad(70.0)
     tracker = MockTracker()
+    tracker.depth_rotation = np.deg2rad(70.0)
     matrix = renderer._model_matrix(720, tracker)
     half_extent = renderer._model_extent[0] / 2
     left = matrix44.apply_to_vector(matrix, [-half_extent, 0.0, 0.0, 1.0])
@@ -86,5 +87,5 @@ if __name__ == '__main__':
     test_material_texture_slots()
     test_horizontal_transform_matches_tracker_length()
     test_rotation_uses_image_coordinate_direction()
-    test_camera_facing_tilt_adds_depth_and_foreshortening()
+    test_hand_depth_tilt_adds_depth_and_foreshortening()
     print('3D cigarette tests passed')

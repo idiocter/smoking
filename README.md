@@ -111,9 +111,10 @@ IDLE
 
 ### Visual Effects
 
-1. **Virtual Cigarette**: GLB model with a PNG-based 2D fallback, follows the midpoint between the index and middle fingertips and tilts its long axis toward the camera
-2. **Ember Glow**: Emissive 3D material or PNG fallback, faces away from the mouth and fades in/out while inhaling
-3. **Smoke Particles**: Small wisps travel from the ember into the mouth during inhalation; larger exhale particles expand and drift upward afterward
+1. **Virtual Cigarette**: GLB model with a PNG-based 2D fallback, sits inside the index-middle grip, scales with hand size, and follows the hand's live 3D direction
+2. **Finger Occlusion**: The distal index and middle fingers are restored over the model so it appears pinched between them instead of pasted on top
+3. **Ember Glow**: Emissive 3D material or PNG fallback, faces away from the mouth and fades in/out while inhaling
+4. **Smoke Particles**: Small wisps travel from the ember into the mouth during inhalation; larger exhale particles expand and drift upward afterward
 
 ---
 

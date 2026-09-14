@@ -13,6 +13,7 @@ from utils.smoothing import Smoother, OneEuroFilter, OneEuroFilter2D, AngleOneEu
 from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
+from effects.cigarette import apply_finger_occlusion
 from effects.smoke import InhaleSmokeParticle, SmokeEffect, SmokeParticle
 
 
@@ -215,7 +216,25 @@ def test_cigarette_tracker():
     tracker.update(create_mock_hand_landmarks(middle_tip=None))
     assert not tracker.is_held
 
+    # Spreading the two fingers releases the cigarette instead of pinning it.
+    tracker.reset()
+    tracker.update(create_mock_hand_landmarks(middle_tip=(220, 100)))
+    assert not tracker.is_held
+
+    # 3D palm direction controls the cigarette's camera-facing depth angle.
+    tracker.reset()
+    hand_3d = {
+        'wrist': (100, 180, 0),
+        'index_mcp': (110, 140, 0),
+        'middle_mcp': (130, 130, -5),
+        'pinky_mcp': (170, 150, 0),
+    }
+    tracker.update(hand.landmarks, hand_3d)
+    assert tracker.is_held
+    assert tracker.depth_rotation > np.deg2rad(70)
+
     # Test mouth end position
+    tracker.reset()
     tracker.update(hand.landmarks)
     mouth_center = (320, 240)
     end_pos = tracker.get_mouth_end_position(mouth_center)
@@ -241,6 +260,26 @@ def test_cigarette_tracker():
     assert tracker.position is None
 
     print("  Cigarette tracker tests PASSED")
+
+
+def test_finger_occlusion():
+    print("Testing finger occlusion...")
+    original = np.zeros((50, 60, 3), dtype=np.uint8)
+    rendered = np.full_like(original, 255)
+    landmarks = {
+        'index_pip': (20, 10),
+        'index_dip': (20, 20),
+        'index_tip': (20, 35),
+        'middle_pip': (40, 10),
+        'middle_dip': (40, 20),
+        'middle_tip': (40, 35),
+    }
+
+    result = apply_finger_occlusion(rendered, original, landmarks)
+    assert np.all(result[20, 20] == 0)
+    assert np.all(result[20, 40] == 0)
+    assert np.all(result[20, 30] == 255)
+    print("  Finger occlusion tests PASSED")
 
 
 # ==================== CIGARETTE-MOUTH DETECTOR TESTS ====================
@@ -423,6 +462,7 @@ if __name__ == '__main__':
     test_geometry()
     test_smoothing()
     test_cigarette_tracker()
+    test_finger_occlusion()
     test_cigarette_mouth_detector()
     test_smoking_detector()
     test_smoke_effect()

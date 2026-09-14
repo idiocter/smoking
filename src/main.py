@@ -12,7 +12,11 @@ from vision.hand_tracker import HandTracker
 from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
-from effects.cigarette import CigaretteRenderer, CigaretteRendererFallback
+from effects.cigarette import (
+    CigaretteRenderer,
+    CigaretteRendererFallback,
+    apply_finger_occlusion,
+)
 from effects.glow import GlowEffect
 from effects.smoke import SmokeEffect
 from config import Config
@@ -165,6 +169,7 @@ class VirtualSmokingApp:
             if frame is None:
                 print("Failed to read frame")
                 break
+            original_frame = frame.copy()
 
             h, w = frame.shape[:2]
             
@@ -179,6 +184,8 @@ class VirtualSmokingApp:
                 import traceback; traceback.print_exc()
                 face_detected = False
 
+            hand_landmarks = None
+            hand_landmarks_3d = None
             try:
                 hand_detected = self.hand_tracker.process(frame)
             except Exception as e:
@@ -188,7 +195,8 @@ class VirtualSmokingApp:
 
             try:
                 hand_landmarks = self.hand_tracker.get_all_landmarks()
-                self.cigarette_tracker.update(hand_landmarks)
+                hand_landmarks_3d = self.hand_tracker.get_all_landmarks_3d()
+                self.cigarette_tracker.update(hand_landmarks, hand_landmarks_3d)
             except Exception as e:
                 print(f"Error in cigarette_tracker.update: {e}")
                 import traceback; traceback.print_exc()
@@ -258,6 +266,10 @@ class VirtualSmokingApp:
                         self.cigarette_tracker.length,
                         ember_position=ember_position,
                     )
+
+                frame = apply_finger_occlusion(
+                    frame, original_frame, hand_landmarks
+                )
 
             self.smoke_effect.draw(frame)
 

@@ -333,7 +333,10 @@ class Cigarette3DRenderer:
             rotation = cigarette_tracker.rotation
         model_matrix *= Matrix44.from_z_rotation(rotation + self.rotation_offset[2])
         model_matrix *= Matrix44.from_x_rotation(self.rotation_offset[0])
-        model_matrix *= Matrix44.from_y_rotation(self.rotation_offset[1])
+        depth_rotation = getattr(cigarette_tracker, 'depth_rotation', 0.0)
+        model_matrix *= Matrix44.from_y_rotation(
+            depth_rotation + self.rotation_offset[1]
+        )
         model_matrix *= Matrix44.from_scale([pixel_scale, pixel_scale, pixel_scale])
         return model_matrix
 

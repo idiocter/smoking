@@ -25,6 +25,13 @@ class Config:
     CIGARETTE_TRACKER = {
         'length': 140,
         'thickness': 12,
+        'reference_hand_length': 190,
+        'min_length': 85,
+        'max_length': 210,
+        'grip_tip_ratio': 0.55,
+        'max_grip_distance_ratio': 0.30,
+        'default_depth_rotation': np.deg2rad(70.0),
+        'max_depth_rotation': np.deg2rad(82.0),
         'position_smoothing': {
             'freq': 30.0,
             'mincutoff': 1.5,
@@ -80,9 +87,8 @@ class Config:
         'model_offset_y': 0.0,
         'model_offset_z': 0.0,
         'model_rotation_offset_x': 0.0,
-        # Tilt the cigarette's long axis toward the camera. A full 90 degrees
-        # would make it appear as only an end cap, so retain a small side profile.
-        'model_rotation_offset_y': np.deg2rad(70.0),
+        # Live depth tilt comes from the 3D hand pose.
+        'model_rotation_offset_y': 0.0,
         'model_rotation_offset_z': 0.0,
     }
 

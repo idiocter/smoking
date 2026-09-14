@@ -18,6 +18,7 @@ from config import Config
 
 class PreviewTracker:
     is_held = True
+    depth_rotation = Config.CIGARETTE_TRACKER['default_depth_rotation']
 
     def __init__(self, position, rotation, length):
         self.position = position

@@ -85,6 +85,20 @@ class HandTracker:
         return {name: (self._landmarks[idx].x * w, self._landmarks[idx].y * h) 
                 for name, idx in self.landmark_indices.items()}
 
+    def get_all_landmarks_3d(self):
+        """Return hand landmarks in a pixel-scaled camera coordinate space."""
+        if self._landmarks is None:
+            return None
+        h, w = self._image_shape
+        return {
+            name: (
+                self._landmarks[idx].x * w,
+                self._landmarks[idx].y * h,
+                self._landmarks[idx].z * w,
+            )
+            for name, idx in self.landmark_indices.items()
+        }
+
     def get_handedness(self):
         return self._handedness
 

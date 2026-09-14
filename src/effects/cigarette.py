@@ -3,6 +3,39 @@ import numpy as np
 import os
 
 
+def apply_finger_occlusion(frame, original_frame, hand_landmarks):
+    """Restore the distal index/middle fingers over the rendered cigarette."""
+    if hand_landmarks is None or frame.shape != original_frame.shape:
+        return frame
+
+    index_dip = hand_landmarks.get('index_dip')
+    middle_dip = hand_landmarks.get('middle_dip')
+    if index_dip is None or middle_dip is None:
+        return frame
+
+    finger_gap = np.linalg.norm(np.subtract(middle_dip, index_dip))
+    thickness = max(5, int(finger_gap * 0.42))
+    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+    for finger in ('index', 'middle'):
+        points = [
+            hand_landmarks.get(f'{finger}_pip'),
+            hand_landmarks.get(f'{finger}_dip'),
+            hand_landmarks.get(f'{finger}_tip'),
+        ]
+        points = [point for point in points if point is not None]
+        if len(points) < 2:
+            continue
+        polyline = np.array(points, dtype=np.int32)
+        cv2.polylines(mask, [polyline], False, 255, thickness, cv2.LINE_AA)
+        for point in polyline:
+            cv2.circle(mask, tuple(point), thickness // 2, 255, -1, cv2.LINE_AA)
+
+    occluded = mask > 0
+    frame[occluded] = original_frame[occluded]
+    return frame
+
+
 class CigaretteRenderer:
     def __init__(self, asset_path=None, length=140, thickness=12):
         self.length = length
