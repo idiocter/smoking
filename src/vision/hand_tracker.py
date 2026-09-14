@@ -3,6 +3,7 @@ import mediapipe as mp
 from pathlib import Path
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from config import Config
 
 
 class HandTracker:
@@ -54,8 +55,14 @@ class HandTracker:
         self._timestamp = 0
 
     def process(self, frame):
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self._image_shape = frame.shape[:2]
+        scale = Config.HAND_TRACKER.get('processing_scale', 1.0)
+        tracking_frame = frame
+        if 0 < scale < 1.0:
+            tracking_frame = cv2.resize(
+                frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+            )
+        rgb = cv2.cvtColor(tracking_frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         self._timestamp += 1
         result = self.landmarker.detect_for_video(mp_image, self._timestamp)

@@ -317,11 +317,12 @@ class Cigarette3DRenderer:
             self.emissive_intensity = max(self.target_emissive_intensity, 
                                          self.emissive_intensity - self.fade_out_speed)
 
-    def _model_matrix(self, frame_height, cigarette_tracker, rotation=None):
+    def _model_matrix(self, frame_height, cigarette_tracker, rotation=None,
+                      position=None):
         """Build a pixel-aligned transform from the tracked cigarette pose."""
         pixel_scale = cigarette_tracker.length / self._model_extent[0]
         pixel_scale *= self.model_scale
-        pos_2d = cigarette_tracker.position
+        pos_2d = position if position is not None else cigarette_tracker.position
         world_pos = np.array([
             pos_2d[0] + self.model_offset[0],
             frame_height - pos_2d[1] - self.model_offset[1],
@@ -361,7 +362,10 @@ class Cigarette3DRenderer:
         if self._model_extent[0] <= 0:
             return frame
         rotation = cigarette_tracker.get_render_rotation(mouth_center)
-        model_matrix = self._model_matrix(h, cigarette_tracker, rotation=rotation)
+        position = cigarette_tracker.get_render_position(mouth_center)
+        model_matrix = self._model_matrix(
+            h, cigarette_tracker, rotation=rotation, position=position
+        )
         
         # Render to offscreen framebuffer
         self.fbo.use()

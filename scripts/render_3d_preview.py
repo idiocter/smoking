@@ -31,6 +31,14 @@ class PreviewTracker:
     def get_render_rotation(self, mouth_center=None):
         return self.rotation
 
+    def get_render_position(self, mouth_center=None):
+        projected_length = self.length * max(abs(np.cos(self.depth_rotation)), 0.2)
+        offset = projected_length * Config.CIGARETTE_TRACKER['grip_to_center_ratio']
+        return (
+            self.position[0] + np.cos(self.rotation) * offset,
+            self.position[1] + np.sin(self.rotation) * offset,
+        )
+
 
 def render_preview(output_path, width=960, height=540):
     x_gradient = np.linspace(42, 20, width, dtype=np.uint8)

@@ -239,10 +239,11 @@ def test_cigarette_tracker():
     tracker.update(hand.landmarks)
     mouth_center = (320, 240)
     end_pos = tracker.get_mouth_end_position(mouth_center)
-    assert end_pos is not None
+    assert end_pos == tracker.get_base_position()
     ember_pos = tracker.get_ember_position(mouth_center)
-    assert ember_pos == tracker.get_base_position()
-    assert abs(tracker.get_render_rotation(mouth_center) - np.pi) < 0.001
+    assert ember_pos == tracker.get_tip_position()
+    assert abs(tracker.get_render_rotation(mouth_center)) < 0.001
+    assert tracker.get_render_position()[0] > tracker.position[0]
 
     # Test with no hand
     tracker.update(None)
@@ -309,6 +310,14 @@ def test_cigarette_pickup_and_gravity():
     old_y = tracker.position[1]
     tracker.update(moved_grip, frame_shape=(720, 1280), ashtray=ashtray)
     assert old_y < tracker.position[1] < moved_grip['index_tip'][1] + 10
+    target_y = rest_position[1] + 80
+    assert target_y - tracker.position[1] < 15
+
+    # A brief landmark dropout coasts instead of freezing the object in place.
+    coast_y = tracker.position[1]
+    tracker.update(None, frame_shape=(720, 1280), ashtray=ashtray)
+    assert tracker.state == CigaretteTracker.HELD
+    assert tracker.position[1] > coast_y
 
     spread_grip = dict(moved_grip)
     spread_grip['middle_tip'] = (

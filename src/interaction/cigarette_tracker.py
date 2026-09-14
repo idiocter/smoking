@@ -21,6 +21,7 @@ class CigaretteTracker:
 
         pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
         rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
+        depth_cfg = Config.CIGARETTE_TRACKER['depth_smoothing']
 
         self.position_smoother = OneEuroFilter2D(
             freq=pos_cfg['freq'],
@@ -33,9 +34,9 @@ class CigaretteTracker:
             beta=rot_cfg['beta']
         )
         self.depth_smoother = AngleOneEuroFilter(
-            freq=rot_cfg['freq'],
-            mincutoff=rot_cfg['mincutoff'],
-            beta=rot_cfg['beta']
+            freq=depth_cfg['freq'],
+            mincutoff=depth_cfg['mincutoff'],
+            beta=depth_cfg['beta']
         )
         self.length_smoother = OneEuroFilter(
             freq=pos_cfg['freq'],
@@ -60,6 +61,7 @@ class CigaretteTracker:
         self._grab_position_offset = np.zeros(2, dtype=np.float64)
         self._grab_rotation_offset = 0.0
         self._grab_depth_offset = 0.0
+        self._last_palm_normal = None
 
     @staticmethod
     def _interpolate(start, end, amount):
@@ -93,14 +95,18 @@ class CigaretteTracker:
             return fallback_rotation, Config.CIGARETTE_TRACKER['default_depth_rotation']
 
         palm_normal = palm_normal / normal_length
-        # MediaPipe uses negative Z toward the camera. Keep the cigarette's
-        # outward end on that side regardless of left/right handedness.
-        if palm_normal[2] > 0:
+        # Keep the normal continuous between frames. This prevents noisy depth
+        # estimates from flipping the cigarette by 180 degrees.
+        if self._last_palm_normal is not None:
+            if np.dot(palm_normal, self._last_palm_normal) < 0:
+                palm_normal = -palm_normal
+        elif palm_normal[2] > 0:
             palm_normal = -palm_normal
+        self._last_palm_normal = palm_normal
 
         screen_length = np.hypot(palm_normal[0], palm_normal[1])
-        rotation = fallback_rotation
-        if screen_length > 0.08:
+        rotation = self._raw_rotation
+        if screen_length > 0.18:
             rotation = vector_angle((palm_normal[0], palm_normal[1]))
 
         depth_rotation = np.arctan2(-palm_normal[2], screen_length)
@@ -217,18 +223,44 @@ class CigaretteTracker:
         self._physics_initialized = True
 
     def _begin_hold(self, raw_pos, raw_rot, raw_depth):
-        self._grab_position_offset = np.subtract(self.position, raw_pos)
-        self._grab_rotation_offset = self.rotation - raw_rot
-        self._grab_depth_offset = self.depth_rotation - raw_depth
+        # Lock to the defined finger anchor once the object has been picked up.
+        self._grab_position_offset[:] = 0.0
+        self._grab_rotation_offset = 0.0
+        self._grab_depth_offset = 0.0
+        self.position = tuple(raw_pos)
+        self.rotation = raw_rot
+        self.depth_rotation = raw_depth
         self.velocity[:] = 0.0
         self.angular_velocity = 0.0
+        self.position_smoother.reset()
+        self.rotation_smoother.reset()
+        self.depth_smoother.reset()
+        self.position_smoother(self.position)
+        self.rotation_smoother(self.rotation)
+        self.depth_smoother(self.depth_rotation)
         self.is_held = True
         self.state = self.HELD
         self._frames_lost = 0
 
     def _release(self):
+        cfg = Config.CIGARETTE_TRACKER
+        speed = np.linalg.norm(self.velocity)
+        if speed > cfg['max_release_speed']:
+            self.velocity *= cfg['max_release_speed'] / speed
+        self.angular_velocity = np.clip(
+            self.angular_velocity,
+            -cfg['max_angular_velocity'],
+            cfg['max_angular_velocity'],
+        )
         self.is_held = False
         self.state = self.FALLING
+
+    def _coast_through_tracking_loss(self, dt):
+        decay = Config.CIGARETTE_TRACKER['tracking_loss_velocity_decay']
+        self.velocity *= decay
+        self.angular_velocity *= decay
+        self.position = tuple(np.add(self.position, self.velocity * dt))
+        self.rotation += self.angular_velocity * dt
 
     def _update_falling(self, frame_shape, ashtray, dt):
         if self.position is None:
@@ -262,6 +294,8 @@ class CigaretteTracker:
             if physics_enabled:
                 if self.is_held and self._frames_lost > self._max_frames_lost:
                     self._release()
+                elif self.is_held:
+                    self._coast_through_tracking_loss(dt)
                 if self.state == self.FALLING:
                     self._update_falling(frame_shape, ashtray, dt)
             elif self._frames_lost > self._max_frames_lost:
@@ -300,13 +334,10 @@ class CigaretteTracker:
                 self._update_falling(frame_shape, ashtray, dt)
                 return
 
-            target_position = np.add(raw_pos, self._grab_position_offset)
-            displacement = target_position - np.asarray(self.position)
-            self.velocity = (
-                self.velocity * cfg['hold_damping'] +
-                displacement * cfg['hold_spring']
-            )
-            self.position = tuple(np.add(self.position, self.velocity * dt))
+            target_position = tuple(np.add(raw_pos, self._grab_position_offset))
+            previous_position = np.asarray(self.position)
+            self.position = self.position_smoother(target_position)
+            self.velocity = (np.asarray(self.position) - previous_position) / max(dt, 1e-6)
             previous_rotation = self.rotation
             self.rotation = self.rotation_smoother(
                 raw_rot + self._grab_rotation_offset
@@ -335,57 +366,53 @@ class CigaretteTracker:
     def get_tip_position(self):
         if self.position is None:
             return None
+        center = self.get_render_position()
         projected_half_length = self.length * max(abs(np.cos(self.depth_rotation)), 0.2) / 2
         dx = np.cos(self.rotation) * projected_half_length
         dy = np.sin(self.rotation) * projected_half_length
-        return (self.position[0] + dx, self.position[1] + dy)
+        return (center[0] + dx, center[1] + dy)
 
     def get_base_position(self):
         if self.position is None:
             return None
+        center = self.get_render_position()
         projected_half_length = self.length * max(abs(np.cos(self.depth_rotation)), 0.2) / 2
         dx = -np.cos(self.rotation) * projected_half_length
         dy = -np.sin(self.rotation) * projected_half_length
-        return (self.position[0] + dx, self.position[1] + dy)
+        return (center[0] + dx, center[1] + dy)
+
+    def get_render_position(self, mouth_center=None):
+        """Place the model center outward so the fingers grip its filter area."""
+        if self.position is None:
+            return None
+        projected_length = self.length * max(abs(np.cos(self.depth_rotation)), 0.2)
+        center_offset = (
+            projected_length * Config.CIGARETTE_TRACKER['grip_to_center_ratio']
+        )
+        return (
+            self.position[0] + np.cos(self.rotation) * center_offset,
+            self.position[1] + np.sin(self.rotation) * center_offset,
+        )
 
     def get_mouth_end_position(self, mouth_center=None):
         if self.position is None:
             return None
 
-        tip = self.get_tip_position()
-        base = self.get_base_position()
-
-        if mouth_center is None:
-            return tip
-
-        tip_dist = distance(tip, mouth_center)
-        base_dist = distance(base, mouth_center)
-
-        return tip if tip_dist < base_dist else base
+        # The negative model end is always the filter/mouth end.
+        return self.get_base_position()
 
     def get_ember_position(self, mouth_center=None):
         """Return the cigarette end farthest from the mouth."""
         if self.position is None:
             return None
 
-        tip = self.get_tip_position()
-        base = self.get_base_position()
-        if mouth_center is None:
-            return tip
-
-        tip_dist = distance(tip, mouth_center)
-        base_dist = distance(base, mouth_center)
-        return tip if tip_dist >= base_dist else base
+        # The positive model end contains the emissive ember material.
+        return self.get_tip_position()
 
     def get_render_rotation(self, mouth_center=None):
         """Orient the positive model axis toward the ember, away from the mouth."""
-        if self.position is None or mouth_center is None:
-            return self.rotation
-
-        tip = self.get_tip_position()
-        base = self.get_base_position()
-        if distance(tip, mouth_center) < distance(base, mouth_center):
-            return self.rotation + np.pi
+        # The palm normal already orients +X outward from the hand. Never flip
+        # the ember toward the fingers based on the mouth's screen position.
         return self.rotation
 
     def get_orientation_vector(self):
@@ -425,8 +452,10 @@ class CigaretteTracker:
         self.velocity[:] = 0.0
         self.angular_velocity = 0.0
         self._physics_initialized = False
+        self._last_palm_normal = None
         pos_cfg = Config.CIGARETTE_TRACKER['position_smoothing']
         rot_cfg = Config.CIGARETTE_TRACKER['rotation_smoothing']
+        depth_cfg = Config.CIGARETTE_TRACKER['depth_smoothing']
         self.position_smoother = OneEuroFilter2D(
             freq=pos_cfg['freq'],
             mincutoff=pos_cfg['mincutoff'],
@@ -438,9 +467,9 @@ class CigaretteTracker:
             beta=rot_cfg['beta']
         )
         self.depth_smoother = AngleOneEuroFilter(
-            freq=rot_cfg['freq'],
-            mincutoff=rot_cfg['mincutoff'],
-            beta=rot_cfg['beta']
+            freq=depth_cfg['freq'],
+            mincutoff=depth_cfg['mincutoff'],
+            beta=depth_cfg['beta']
         )
         self.length_smoother = OneEuroFilter(
             freq=pos_cfg['freq'],

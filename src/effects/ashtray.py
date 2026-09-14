@@ -20,7 +20,9 @@ class AshtrayRenderer:
         if self.center is None:
             return None
         return {
-            'position': (float(self.center[0]), float(self.center[1] - 6)),
+            # This is the filter-grip anchor. The model center is offset about
+            # 42 px toward the ember by CigaretteTracker.
+            'position': (float(self.center[0] - 42), float(self.center[1] - 1)),
             'rotation': -0.12,
             'depth_rotation': 0.10,
         }

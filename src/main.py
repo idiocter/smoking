@@ -234,6 +234,7 @@ class VirtualSmokingApp:
             is_inhaling = (smoking_state == SmokingState.INHALING)
             ember_position = self.cigarette_tracker.get_ember_position(mouth_center)
             render_rotation = self.cigarette_tracker.get_render_rotation(mouth_center)
+            render_position = self.cigarette_tracker.get_render_position(mouth_center)
             
             # Update glow - for 3D renderer, use built-in glow; for 2D, use separate glow effect
             if self.use_3d and self.cigarette_renderer_3d:
@@ -261,17 +262,17 @@ class VirtualSmokingApp:
                     # 2D fallback
                     if self.cigarette_renderer.cigarette_img is not None:
                         self.cigarette_renderer.draw(
-                            frame, self.cigarette_tracker.position, render_rotation, 0.0
+                            frame, render_position, render_rotation, 0.0
                         )
                     else:
                         self.fallback_renderer.draw(
-                            frame, self.cigarette_tracker.position, render_rotation, 0.0
+                            frame, render_position, render_rotation, 0.0
                         )
 
                     # Apply 2D glow effect
                     self.glow_effect.draw(
                         frame,
-                        self.cigarette_tracker.position,
+                        render_position,
                         render_rotation,
                         self.cigarette_tracker.length,
                         ember_position=ember_position,

@@ -20,6 +20,8 @@ class Camera:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         self.cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+        # Keep latency low on backends that support a configurable capture queue.
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self._prev_time = time.time()
         return True
 

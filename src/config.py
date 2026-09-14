@@ -14,12 +14,14 @@ class Config:
         'min_detection_confidence': 0.5,
         'min_tracking_confidence': 0.5,
         'mouth_smoothing_window': 5,
+        'processing_scale': 0.55,
     }
 
     HAND_TRACKER = {
         'max_hands': 2,
         'min_detection_confidence': 0.5,
         'min_tracking_confidence': 0.5,
+        'processing_scale': 0.72,
     }
 
     CIGARETTE_TRACKER = {
@@ -29,28 +31,36 @@ class Config:
         'min_length': 85,
         'max_length': 210,
         'grip_tip_ratio': 0.55,
-        'max_grip_distance_ratio': 0.30,
-        'release_grip_distance_ratio': 0.40,
-        'grab_radius': 58,
-        'hold_spring': 0.34,
-        'hold_damping': 0.72,
+        'max_grip_distance_ratio': 0.42,
+        'release_grip_distance_ratio': 0.62,
+        'grab_radius': 140,
+        # Offset the model center outward so the fingers grip the filter area.
+        'grip_to_center_ratio': 0.30,
+        'tracking_loss_velocity_decay': 0.65,
         'gravity': 0.85,
         'air_drag': 0.992,
         'angular_drag': 0.985,
+        'max_release_speed': 28,
+        'max_angular_velocity': 0.25,
         'respawn_margin': 80,
         'default_depth_rotation': np.deg2rad(70.0),
         'max_depth_rotation': np.deg2rad(82.0),
         'position_smoothing': {
             'freq': 30.0,
-            'mincutoff': 1.5,
-            'beta': 0.3,
+            'mincutoff': 2.5,
+            'beta': 0.70,
         },
         'rotation_smoothing': {
             'freq': 30.0,
-            'mincutoff': 1.0,
-            'beta': 0.5,
+            'mincutoff': 1.8,
+            'beta': 0.35,
         },
-        'max_frames_lost': 10,
+        'depth_smoothing': {
+            'freq': 30.0,
+            'mincutoff': 1.2,
+            'beta': 0.18,
+        },
+        'max_frames_lost': 5,
         'min_finger_distance': 15,
     }
 
