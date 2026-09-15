@@ -216,10 +216,12 @@ class VirtualSmokingApp:
             smoking_state = SmokingState.IDLE
             pattern_detected = False
             exhalation_detected = False
+            breath_direction = (0.0, -0.12)
 
             try:
                 if face_detected and self.cigarette_tracker.is_held:
                     mouth_center = self.face_tracker.get_mouth_center()
+                    breath_direction = self.face_tracker.get_breath_direction()
                     interaction_state = self.cigarette_mouth_detector.update(self.cigarette_tracker, self.face_tracker)
                     interaction_distance = self.cigarette_mouth_detector.get_distance()
                     smoking_state = self.smoking_detector.update(
@@ -248,6 +250,7 @@ class VirtualSmokingApp:
                 mouth_center,
                 inhalation_detected=is_inhaling,
                 ember_position=ember_position,
+                exhale_direction=breath_direction,
             )
 
             # Render AR effects

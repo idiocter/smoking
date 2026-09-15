@@ -1,5 +1,6 @@
 import cv2
 import mediapipe as mp
+import numpy as np
 from pathlib import Path
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -150,6 +151,23 @@ class FaceTracker:
             'height': self.get_mouth_height(),
             'aspect_ratio': self.get_mouth_aspect_ratio(),
         }
+
+    def get_breath_direction(self):
+        """Estimate the screen-space direction in which the face is pointing."""
+        nose = self.get_landmark('nose')
+        left_eye = self.get_landmark('left_eye')
+        right_eye = self.get_landmark('right_eye')
+        if not nose or not left_eye or not right_eye:
+            return (0.0, -0.12)
+
+        eye_mid_x = (left_eye[0] + right_eye[0]) * 0.5
+        eye_distance = max(1.0, abs(right_eye[0] - left_eye[0]))
+        yaw = float(np.clip(
+            (nose[0] - eye_mid_x) / (eye_distance * 0.28), -1.0, 1.0
+        ))
+        # Frontal breath travels toward the camera and is represented by rapid
+        # expansion. Horizontal travel appears only when the head turns.
+        return (yaw, -0.12)
 
     def is_detected(self):
         return self._landmarks is not None

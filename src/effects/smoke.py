@@ -5,26 +5,44 @@ from config import Config
 
 
 class SmokeParticle:
-    def __init__(self, x, y, config):
+    """A soft parcel of exhaled smoke with drag, curl, and buoyancy."""
+
+    def __init__(self, x, y, config, direction=(0.0, -0.12)):
         self.x = x
         self.y = y
         self.config = config
 
-        angle_variation = random.uniform(-config['spread_angle'], config['spread_angle'])
-        base_angle = config['base_angle'] + angle_variation
+        direction_x, direction_y = direction
+        direction_x *= config['direction_screen_gain']
+        direction_length = max(1.0, np.hypot(direction_x, direction_y))
+        direction_x /= direction_length
+        direction_y /= direction_length
+        spread = random.uniform(-config['direction_spread'], config['direction_spread'])
         speed = random.uniform(config['min_speed'], config['max_speed'])
-
-        self.vx = np.cos(base_angle) * speed
-        self.vy = np.sin(base_angle) * speed
+        self.vx = (direction_x - direction_y * spread) * speed
+        self.vy = (direction_y + direction_x * spread) * speed
 
         self.size = random.uniform(config['initial_size_min'], config['initial_size_max'])
-        self.opacity = random.uniform(config['initial_opacity_min'], config['initial_opacity_max'])
+        self.base_opacity = random.uniform(
+            config['initial_opacity_min'], config['initial_opacity_max']
+        )
+        self.opacity = 0.0
         self.lifetime = random.uniform(config['lifetime_min'], config['lifetime_max'])
         self.age = 0.0
 
         self.expansion_rate = random.uniform(config['expansion_rate_min'], config['expansion_rate_max'])
-        self.fade_rate = random.uniform(config['fade_rate_min'], config['fade_rate_max'])
-        self.drift = random.uniform(-config['drift_strength'], config['drift_strength'])
+        self.aspect_ratio = random.uniform(
+            config['aspect_ratio_min'], config['aspect_ratio_max']
+        )
+        self.rotation = random.uniform(0.0, 180.0)
+        self.rotation_speed = random.uniform(-0.45, 0.45)
+        self.phase = random.uniform(0.0, np.pi * 2.0)
+        self.turbulence = random.uniform(
+            config['turbulence_strength_min'], config['turbulence_strength_max']
+        )
+        self.turbulence_frequency = random.uniform(
+            config['turbulence_frequency_min'], config['turbulence_frequency_max']
+        )
 
         self.color = (
             random.randint(config['color_r_min'], config['color_r_max']),
@@ -33,16 +51,33 @@ class SmokeParticle:
         )
 
     def update(self, dt=1.0):
+        curl = np.sin(self.phase + self.age * self.turbulence_frequency)
+        self.vx += curl * self.turbulence * dt
+        self.vy += np.cos(
+            self.phase * 0.7 + self.age * self.turbulence_frequency
+        ) * self.turbulence * 0.3 * dt
+        self.vy -= self.config['upward_force'] * (
+            0.25 + self.age / self.lifetime
+        ) * dt
+
         self.x += self.vx * dt
         self.y += self.vy * dt
 
-        self.vy -= self.config['upward_force'] * dt
-        self.vx += self.drift * dt * 0.1
+        drag = self.config['velocity_drag'] ** dt
+        self.vx *= drag
+        self.vy *= drag
 
         self.size += self.expansion_rate * dt
+        self.rotation += self.rotation_speed * dt
 
         self.age += dt
-        self.opacity = max(0.0, self.opacity * (1.0 - self.fade_rate * dt))
+        life_progress = min(1.0, self.age / self.lifetime)
+        fade_in = min(1.0, life_progress / 0.08)
+        fade_out = max(0.0, 1.0 - life_progress) ** 1.65
+        density_variation = 0.9 + 0.1 * np.sin(
+            self.phase + self.age * self.turbulence_frequency * 0.6
+        )
+        self.opacity = self.base_opacity * fade_in * fade_out * density_variation
 
         return self.is_alive()
 
@@ -91,13 +126,30 @@ class InhaleSmokeParticle:
         self.shrink_rate = config['shrink_rate']
         self.fade_rate = config['fade_rate']
         self.color = (205, 205, 205)
+        self.start = np.asarray((self.x, self.y), dtype=np.float32)
+        self.target = np.asarray(target, dtype=np.float32)
+        path = self.target - self.start
+        path_length = max(1.0, float(np.hypot(path[0], path[1])))
+        perpendicular = np.asarray((-path[1], path[0]), dtype=np.float32) / path_length
+        curve_strength = random.uniform(
+            config['curve_strength_min'], config['curve_strength_max']
+        ) * random.choice((-1.0, 1.0))
+        self.curve_offset = perpendicular * curve_strength
+        self.aspect_ratio = random.uniform(0.65, 1.2)
+        self.rotation = float(np.degrees(np.arctan2(path[1], path[0])))
 
     def update(self, dt=1.0):
-        self.x += self.vx * dt
-        self.y += self.vy * dt
+        self.age += dt
+        progress = min(1.0, self.age / self.lifetime)
+        eased_progress = 1.0 - (1.0 - progress) ** 1.35
+        position = (
+            self.start * (1.0 - eased_progress) +
+            self.target * eased_progress +
+            self.curve_offset * np.sin(np.pi * progress)
+        )
+        self.x, self.y = float(position[0]), float(position[1])
         self.size = max(0.5, self.size * (1.0 - self.shrink_rate * dt))
         self.opacity = max(0.0, self.opacity * (1.0 - self.fade_rate * dt))
-        self.age += dt
         return self.is_alive()
 
     def is_alive(self):
@@ -130,16 +182,18 @@ class SmokeEffect:
         self.exhalation_triggered = False
         self._inhale_frame_count = 0
         self._exhale_frame_count = 0
+        self._render_frame = 0
 
     def _default_config(self):
         return Config.SMOKE_EFFECT.copy()
 
     def update(self, exhalation_detected, mouth_center, dt=1.0,
-               inhalation_detected=False, ember_position=None):
+               inhalation_detected=False, ember_position=None,
+               exhale_direction=(0.0, -0.12)):
         if exhalation_detected:
             spawn_interval = self.config.get('spawn_interval_frames', 2)
             if not self.last_exhalation_state or self._exhale_frame_count >= spawn_interval:
-                self._spawn_particles(mouth_center)
+                self._spawn_particles(mouth_center, exhale_direction)
                 self._exhale_frame_count = 0
             self._exhale_frame_count += 1
             self.exhalation_triggered = True
@@ -169,7 +223,7 @@ class SmokeEffect:
         if len(self.particles) > max_particles:
             self.particles = self.particles[-max_particles:]
 
-    def _spawn_particles(self, mouth_center):
+    def _spawn_particles(self, mouth_center, direction=(0.0, -0.12)):
         if mouth_center is None:
             return
 
@@ -183,7 +237,8 @@ class SmokeEffect:
             p = SmokeParticle(
                 mouth_center[0] + offset_x + offset_x_rand,
                 mouth_center[1] + offset_y + offset_y_rand,
-                self.config
+                self.config,
+                direction,
             )
             self.particles.append(p)
 
@@ -208,46 +263,82 @@ class SmokeEffect:
                 continue
 
             x, y = int(particle.x), int(particle.y)
-            radius = max(1, int(particle.size))
+            radius_x = max(1, int(particle.size * particle.aspect_ratio))
+            radius_y = max(1, int(particle.size / particle.aspect_ratio))
+            radius = max(radius_x, radius_y)
             if x + radius < 0 or x - radius >= width:
                 continue
             if y + radius < 0 or y - radius >= height:
                 continue
 
-            visible.append((particle, x, y, radius))
+            visible.append((particle, x, y, radius, radius_x, radius_y))
 
         if not visible:
             return
 
         sigma = self.config.get('blur_sigma', 3.5)
         blur_margin = max(2, int(sigma * 3))
-        left = max(0, min(x - radius for _, x, _, radius in visible) - blur_margin)
-        top = max(0, min(y - radius for _, _, y, radius in visible) - blur_margin)
-        right = min(width, max(x + radius for _, x, _, radius in visible) + blur_margin + 1)
-        bottom = min(height, max(y + radius for _, _, y, radius in visible) + blur_margin + 1)
+        left = max(0, min(x - radius for _, x, _, radius, _, _ in visible) - blur_margin)
+        top = max(0, min(y - radius for _, _, y, radius, _, _ in visible) - blur_margin)
+        right = min(width, max(x + radius for _, x, _, radius, _, _ in visible) + blur_margin + 1)
+        bottom = min(height, max(y + radius for _, _, y, radius, _, _ in visible) + blur_margin + 1)
 
-        smoke_layer = np.zeros((bottom - top, right - left, 3), dtype=np.uint8)
         alpha_layer = np.zeros((bottom - top, right - left), dtype=np.float32)
 
-        for particle, x, y, radius in visible:
-            center = (x - left, y - top)
-
-            cv2.circle(smoke_layer, center, radius, particle.color, -1)
-            cv2.circle(
-                alpha_layer,
-                center,
-                radius,
-                min(1.0, particle.opacity),
-                -1,
+        for particle, x, y, _, radius_x, radius_y in visible:
+            particle_radius = max(radius_x, radius_y)
+            local_left = max(0, x - left - particle_radius)
+            local_top = max(0, y - top - particle_radius)
+            local_right = min(right - left, x - left + particle_radius + 1)
+            local_bottom = min(bottom - top, y - top + particle_radius + 1)
+            particle_mask = np.zeros(
+                (local_bottom - local_top, local_right - local_left),
+                dtype=np.float32,
             )
+            center = (x - left - local_left, y - top - local_top)
+            angle = np.radians(particle.rotation)
+            lobe_offset = int(particle_radius * 0.28)
+            lobe_center = (
+                center[0] + int(np.cos(angle) * lobe_offset),
+                center[1] + int(np.sin(angle) * lobe_offset),
+            )
+            cv2.ellipse(
+                particle_mask,
+                lobe_center,
+                (max(1, int(radius_x * 0.62)), max(1, int(radius_y * 0.62))),
+                particle.rotation + 25.0, 0, 360,
+                min(1.0, particle.opacity * 0.7), -1,
+            )
+            cv2.ellipse(
+                particle_mask,
+                center, (radius_x, radius_y), particle.rotation, 0, 360,
+                min(1.0, particle.opacity), -1,
+            )
+            target = alpha_layer[
+                local_top:local_bottom, local_left:local_right
+            ]
+            target[:] = 1.0 - (1.0 - target) * (1.0 - particle_mask)
 
-        smoke_layer = cv2.GaussianBlur(smoke_layer, (0, 0), sigma)
         alpha_layer = cv2.GaussianBlur(alpha_layer, (0, 0), sigma)
         alpha = np.clip(alpha_layer, 0.0, 1.0)[..., None]
+        texture_strength = self.config.get('density_texture_strength', 0.0)
+        if texture_strength > 0:
+            grid_y, grid_x = np.ogrid[top:bottom, left:right]
+            phase = self._render_frame * 0.08
+            texture = (
+                1.0 - texture_strength * 0.5 +
+                texture_strength * 0.28 * np.sin(grid_x * 0.055 + phase) +
+                texture_strength * 0.22 * np.sin(
+                    grid_y * 0.073 - grid_x * 0.031 - phase * 0.7
+                )
+            )
+            alpha *= np.clip(texture, 0.55, 1.05)[..., None]
+        self._render_frame += 1
+        smoke_color = np.asarray((212, 212, 216), dtype=np.float32)
         frame_region = frame[top:bottom, left:right]
         frame_region[:] = (
             frame_region.astype(np.float32) * (1.0 - alpha) +
-            smoke_layer.astype(np.float32) * alpha
+            smoke_color * alpha
         ).astype(np.uint8)
 
     def get_particle_count(self):
@@ -263,3 +354,4 @@ class SmokeEffect:
         self.exhalation_triggered = False
         self._inhale_frame_count = 0
         self._exhale_frame_count = 0
+        self._render_frame = 0

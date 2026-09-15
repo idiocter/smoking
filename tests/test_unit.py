@@ -453,6 +453,15 @@ def test_smoke_effect():
     effect = SmokeEffect()
     mouth_center = (320, 240)
 
+    # A turned face gives the newly emitted breath matching screen-space motion.
+    parcel = SmokeParticle(100, 100, effect.config, direction=(1.0, 0.0))
+    initial_x = parcel.x
+    initial_size = parcel.size
+    parcel.update()
+    assert parcel.x > initial_x
+    assert parcel.size > initial_size
+    assert parcel.opacity > 0
+
     # Test no exhalation
     effect.update(False, mouth_center)
     assert not effect.is_active()
