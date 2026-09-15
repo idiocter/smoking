@@ -7,7 +7,8 @@ from config import Config
 class SmokeParticle:
     """A soft parcel of exhaled smoke with drag, curl, and buoyancy."""
 
-    def __init__(self, x, y, config, direction=(0.0, -0.12)):
+    def __init__(self, x, y, config, direction=(0.0, -0.58),
+                 ambient_drift=(0.0, 0.0)):
         self.x = x
         self.y = y
         self.config = config
@@ -21,6 +22,8 @@ class SmokeParticle:
         speed = random.uniform(config['min_speed'], config['max_speed'])
         self.vx = (direction_x - direction_y * spread) * speed
         self.vy = (direction_y + direction_x * spread) * speed
+        self.vx += ambient_drift[0]
+        self.vy += ambient_drift[1]
 
         self.size = random.uniform(config['initial_size_min'], config['initial_size_max'])
         self.base_opacity = random.uniform(
@@ -183,15 +186,27 @@ class SmokeEffect:
         self._inhale_frame_count = 0
         self._exhale_frame_count = 0
         self._render_frame = 0
+        self._ambient_drift = (0.0, 0.0)
 
     def _default_config(self):
         return Config.SMOKE_EFFECT.copy()
 
     def update(self, exhalation_detected, mouth_center, dt=1.0,
                inhalation_detected=False, ember_position=None,
-               exhale_direction=(0.0, -0.12)):
+               exhale_direction=(0.0, -0.58)):
         if exhalation_detected:
             spawn_interval = self.config.get('spawn_interval_frames', 2)
+            if not self.last_exhalation_state:
+                self._ambient_drift = (
+                    random.uniform(
+                        self.config['ambient_drift_x_min'],
+                        self.config['ambient_drift_x_max'],
+                    ),
+                    random.uniform(
+                        self.config['ambient_drift_y_min'],
+                        self.config['ambient_drift_y_max'],
+                    ),
+                )
             if not self.last_exhalation_state or self._exhale_frame_count >= spawn_interval:
                 self._spawn_particles(mouth_center, exhale_direction)
                 self._exhale_frame_count = 0
@@ -223,7 +238,7 @@ class SmokeEffect:
         if len(self.particles) > max_particles:
             self.particles = self.particles[-max_particles:]
 
-    def _spawn_particles(self, mouth_center, direction=(0.0, -0.12)):
+    def _spawn_particles(self, mouth_center, direction=(0.0, -0.58)):
         if mouth_center is None:
             return
 
@@ -239,6 +254,7 @@ class SmokeEffect:
                 mouth_center[1] + offset_y + offset_y_rand,
                 self.config,
                 direction,
+                self._ambient_drift,
             )
             self.particles.append(p)
 
@@ -355,3 +371,4 @@ class SmokeEffect:
         self._inhale_frame_count = 0
         self._exhale_frame_count = 0
         self._render_frame = 0
+        self._ambient_drift = (0.0, 0.0)

@@ -158,7 +158,7 @@ class FaceTracker:
         left_eye = self.get_landmark('left_eye')
         right_eye = self.get_landmark('right_eye')
         if not nose or not left_eye or not right_eye:
-            return (0.0, -0.12)
+            return (0.0, -0.58)
 
         eye_mid_x = (left_eye[0] + right_eye[0]) * 0.5
         eye_distance = max(1.0, abs(right_eye[0] - left_eye[0]))
@@ -167,7 +167,7 @@ class FaceTracker:
         ))
         # Frontal breath travels toward the camera and is represented by rapid
         # expansion. Horizontal travel appears only when the head turns.
-        return (yaw, -0.12)
+        return (yaw, -0.58)
 
     def is_detected(self):
         return self._landmarks is not None
