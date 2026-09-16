@@ -7,7 +7,7 @@ from config import Config
 class SmokeParticle:
     """A soft parcel of exhaled smoke with drag, curl, and buoyancy."""
 
-    def __init__(self, x, y, config, direction=(0.0, -0.58),
+    def __init__(self, x, y, config, direction=(0.0, 0.0),
                  ambient_drift=(0.0, 0.0)):
         self.x = x
         self.y = y
@@ -15,6 +15,17 @@ class SmokeParticle:
 
         direction_x, direction_y = direction
         direction_x *= config['direction_screen_gain']
+        direction_y *= config['direction_screen_gain']
+        projected_strength = np.hypot(direction_x, direction_y)
+        if projected_strength < 0.18:
+            # A frontal breath points mostly along camera depth. Give each parcel
+            # radial screen motion so approaching smoke expands away from the lips.
+            depth_angle = random.uniform(0.0, np.pi * 2.0)
+            depth_spread = random.uniform(
+                config['forward_spread_min'], config['forward_spread_max']
+            )
+            direction_x = np.cos(depth_angle) * depth_spread
+            direction_y = np.sin(depth_angle) * depth_spread
         direction_length = max(1.0, np.hypot(direction_x, direction_y))
         direction_x /= direction_length
         direction_y /= direction_length
@@ -193,7 +204,7 @@ class SmokeEffect:
 
     def update(self, exhalation_detected, mouth_center, dt=1.0,
                inhalation_detected=False, ember_position=None,
-               exhale_direction=(0.0, -0.58)):
+               exhale_direction=(0.0, 0.0)):
         if exhalation_detected:
             spawn_interval = self.config.get('spawn_interval_frames', 2)
             if not self.last_exhalation_state:
@@ -238,7 +249,7 @@ class SmokeEffect:
         if len(self.particles) > max_particles:
             self.particles = self.particles[-max_particles:]
 
-    def _spawn_particles(self, mouth_center, direction=(0.0, -0.58)):
+    def _spawn_particles(self, mouth_center, direction=(0.0, 0.0)):
         if mouth_center is None:
             return
 

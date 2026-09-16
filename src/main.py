@@ -216,7 +216,7 @@ class VirtualSmokingApp:
             smoking_state = SmokingState.IDLE
             pattern_detected = False
             exhalation_detected = False
-            breath_direction = (0.0, -0.58)
+            breath_direction = (0.0, 0.0)
 
             try:
                 if face_detected and self.cigarette_tracker.is_held:

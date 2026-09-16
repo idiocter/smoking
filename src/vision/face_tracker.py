@@ -39,6 +39,9 @@ class FaceTracker:
             'chin': 152,
             'left_eye': 33,
             'right_eye': 263,
+            'forehead': 10,
+            'left_cheek': 234,
+            'right_cheek': 454,
             'left_eyebrow': 70,
             'right_eyebrow': 300,
             'upper_lip_top': 12,
@@ -56,6 +59,7 @@ class FaceTracker:
         self._mouth_height_smoother = Smoother(window_size=window)
         self._mouth_opening_smoother = Smoother(window_size=window)
         self._mouth_aspect_ratio_smoother = Smoother(window_size=window)
+        self._breath_direction_smoother = Smoother(window_size=4)
 
     def process(self, frame):
         self._image_shape = frame.shape[:2]
@@ -81,6 +85,16 @@ class FaceTracker:
         lm = self._landmarks[idx]
         h, w = self._image_shape
         return (lm.x * w, lm.y * h)
+
+    def get_landmark_3d(self, name):
+        if self._landmarks is None or name not in self.landmark_indices:
+            return None
+        landmark = self._landmarks[self.landmark_indices[name]]
+        height, width = self._image_shape
+        return np.asarray(
+            (landmark.x * width, landmark.y * height, landmark.z * width),
+            dtype=np.float32,
+        )
 
     def get_landmarks(self, names):
         return {name: self.get_landmark(name) for name in names}
@@ -153,21 +167,57 @@ class FaceTracker:
         }
 
     def get_breath_direction(self):
-        """Estimate the screen-space direction in which the face is pointing."""
-        nose = self.get_landmark('nose')
-        left_eye = self.get_landmark('left_eye')
-        right_eye = self.get_landmark('right_eye')
-        if not nose or not left_eye or not right_eye:
-            return (0.0, -0.58)
+        """Project the face normal onto the screen as the blowing direction."""
+        left_cheek = self.get_landmark_3d('left_cheek')
+        right_cheek = self.get_landmark_3d('right_cheek')
+        forehead = self.get_landmark_3d('forehead')
+        chin = self.get_landmark_3d('chin')
+        if any(point is None for point in (left_cheek, right_cheek, forehead, chin)):
+            self._breath_direction_smoother.clear()
+            return (0.0, 0.0)
 
-        eye_mid_x = (left_eye[0] + right_eye[0]) * 0.5
-        eye_distance = max(1.0, abs(right_eye[0] - left_eye[0]))
-        yaw = float(np.clip(
-            (nose[0] - eye_mid_x) / (eye_distance * 0.28), -1.0, 1.0
-        ))
-        # Frontal breath travels toward the camera and is represented by rapid
-        # expansion. Horizontal travel appears only when the head turns.
-        return (yaw, -0.58)
+        screen_left, screen_right = sorted(
+            (left_cheek, right_cheek), key=lambda point: point[0]
+        )
+        horizontal = screen_right - screen_left
+        vertical = chin - forehead
+        face_normal = np.cross(horizontal, vertical)
+        normal_length = float(np.linalg.norm(face_normal))
+        if normal_length < 1e-6:
+            return self._breath_direction_smoother.get() or (0.0, 0.0)
+
+        face_normal /= normal_length
+        if face_normal[2] < 0:
+            face_normal *= -1.0
+
+        # Blend in the local lip plane so a puckered, angled mouth can refine
+        # the broader head direction without letting noisy lip depth dominate.
+        mouth_left = self.get_landmark_3d('mouth_left')
+        mouth_right = self.get_landmark_3d('mouth_right')
+        upper_lip = self.get_landmark_3d('upper_lip_top')
+        lower_lip = self.get_landmark_3d('lower_lip_bottom')
+        if all(
+            point is not None
+            for point in (mouth_left, mouth_right, upper_lip, lower_lip)
+        ):
+            lip_left, lip_right = sorted(
+                (mouth_left, mouth_right), key=lambda point: point[0]
+            )
+            lip_normal = np.cross(lip_right - lip_left, lower_lip - upper_lip)
+            lip_normal_length = float(np.linalg.norm(lip_normal))
+            if lip_normal_length >= 1e-6:
+                lip_normal /= lip_normal_length
+                if lip_normal[2] < 0:
+                    lip_normal *= -1.0
+                face_normal = face_normal * 0.8 + lip_normal * 0.2
+                face_normal /= max(1e-6, float(np.linalg.norm(face_normal)))
+
+        depth = max(0.25, abs(float(face_normal[2])))
+        direction = (
+            float(np.clip(face_normal[0] / depth, -1.0, 1.0)),
+            float(np.clip(face_normal[1] / depth, -1.0, 1.0)),
+        )
+        return self._breath_direction_smoother.add(direction)
 
     def is_detected(self):
         return self._landmarks is not None

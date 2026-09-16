@@ -13,6 +13,7 @@ from utils.smoothing import Smoother, OneEuroFilter, OneEuroFilter2D, AngleOneEu
 from interaction.cigarette_tracker import CigaretteTracker
 from interaction.cigarette_mouth_detector import CigaretteMouthDetector, CigaretteMouthState
 from interaction.smoking_detector import SmokingDetector, SmokingState
+from vision.face_tracker import FaceTracker
 from effects.cigarette import apply_finger_occlusion
 from effects.ashtray import AshtrayRenderer
 from effects.smoke import InhaleSmokeParticle, SmokeEffect, SmokeParticle
@@ -520,6 +521,32 @@ def test_smoke_effect():
     print("  Smoke effect tests PASSED")
 
 
+def test_breath_direction():
+    print("Testing breath direction...")
+
+    tracker = FaceTracker.__new__(FaceTracker)
+    tracker._breath_direction_smoother = Smoother(window_size=1)
+
+    points = {
+        'left_cheek': np.asarray((-1.0, 0.0, 0.5), dtype=np.float32),
+        'right_cheek': np.asarray((1.0, 0.0, -0.5), dtype=np.float32),
+        'forehead': np.asarray((0.0, -1.0, 0.0), dtype=np.float32),
+        'chin': np.asarray((0.0, 1.0, 0.0), dtype=np.float32),
+    }
+    tracker.get_landmark_3d = points.get
+    direction = tracker.get_breath_direction()
+    assert direction[0] > 0.25
+
+    points['left_cheek'] = np.asarray((-1.0, 0.0, 0.0), dtype=np.float32)
+    points['right_cheek'] = np.asarray((1.0, 0.0, 0.0), dtype=np.float32)
+    points['forehead'] = np.asarray((0.0, -1.0, 0.5), dtype=np.float32)
+    points['chin'] = np.asarray((0.0, 1.0, -0.5), dtype=np.float32)
+    direction = tracker.get_breath_direction()
+    assert direction[1] > 0.25
+
+    print("  Breath direction tests PASSED")
+
+
 # ==================== STATE MACHINE INTEGRATION TEST ====================
 
 def test_state_machine_transitions():
@@ -564,6 +591,7 @@ if __name__ == '__main__':
     test_cigarette_mouth_detector()
     test_smoking_detector()
     test_smoke_effect()
+    test_breath_direction()
     test_state_machine_transitions()
 
     print("=" * 50)
