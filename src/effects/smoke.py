@@ -29,10 +29,17 @@ class SmokeParticle:
         direction_length = max(1.0, np.hypot(direction_x, direction_y))
         direction_x /= direction_length
         direction_y /= direction_length
-        spread = random.uniform(-config['direction_spread'], config['direction_spread'])
-        speed = random.uniform(config['min_speed'], config['max_speed'])
-        self.vx = (direction_x - direction_y * spread) * speed
-        self.vy = (direction_y + direction_x * spread) * speed
+        self.direction_spread = random.uniform(
+            -config['direction_spread'], config['direction_spread']
+        )
+        self.speed = random.uniform(config['min_speed'], config['max_speed'])
+        self.ambient_drift = ambient_drift
+        self.vx = (
+            direction_x - direction_y * self.direction_spread
+        ) * self.speed
+        self.vy = (
+            direction_y + direction_x * self.direction_spread
+        ) * self.speed
         self.vx += ambient_drift[0]
         self.vy += ambient_drift[1]
 
@@ -63,6 +70,34 @@ class SmokeParticle:
             random.randint(config['color_g_min'], config['color_g_max']),
             random.randint(config['color_b_min'], config['color_b_max'])
         )
+
+    def follow_direction(self, direction):
+        """Steer only fresh breath so the live plume bends without snapping."""
+        follow_frames = self.config['direction_follow_frames']
+        if self.age >= follow_frames:
+            return
+
+        direction_x = direction[0] * self.config['direction_screen_gain']
+        direction_y = direction[1] * self.config['direction_screen_gain']
+        projected_strength = float(np.hypot(direction_x, direction_y))
+        if projected_strength < 0.18:
+            # A forward-facing breath remains radial; keep this parcel's chosen
+            # depth projection until the mouth points clearly across the screen.
+            return
+
+        direction_length = max(1.0, projected_strength)
+        direction_x /= direction_length
+        direction_y /= direction_length
+        target_vx = (
+            direction_x - direction_y * self.direction_spread
+        ) * self.speed + self.ambient_drift[0]
+        target_vy = (
+            direction_y + direction_x * self.direction_spread
+        ) * self.speed + self.ambient_drift[1]
+        youth = max(0.0, 1.0 - self.age / follow_frames)
+        blend = self.config['direction_follow_strength'] * youth
+        self.vx = self.vx * (1.0 - blend) + target_vx * blend
+        self.vy = self.vy * (1.0 - blend) + target_vy * blend
 
     def update(self, dt=1.0):
         curl = np.sin(self.phase + self.age * self.turbulence_frequency)
@@ -241,6 +276,8 @@ class SmokeEffect:
 
         alive_particles = []
         for p in self.particles:
+            if exhalation_detected and isinstance(p, SmokeParticle):
+                p.follow_direction(exhale_direction)
             if p.update(dt):
                 alive_particles.append(p)
         self.particles = alive_particles

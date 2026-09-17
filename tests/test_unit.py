@@ -463,6 +463,14 @@ def test_smoke_effect():
     assert parcel.size > initial_size
     assert parcel.opacity > 0
 
+    # Fresh smoke follows a live change in mouth direction instead of waiting
+    # for the next plume to be created.
+    velocity_before_turn = parcel.vx
+    for _ in range(8):
+        parcel.follow_direction((-1.0, 0.0))
+    assert parcel.vx < velocity_before_turn
+    assert parcel.vx < 0
+
     # Test no exhalation
     effect.update(False, mouth_center)
     assert not effect.is_active()

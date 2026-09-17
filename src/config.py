@@ -128,6 +128,8 @@ class Config:
         'max_speed': 1.6,
         'direction_screen_gain': 2.0,
         'direction_spread': 0.65,
+        'direction_follow_frames': 18,
+        'direction_follow_strength': 0.38,
         'forward_spread_min': 0.32,
         'forward_spread_max': 0.75,
         'ambient_drift_x_min': -0.28,
